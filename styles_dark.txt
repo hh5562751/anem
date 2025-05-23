@@ -1,0 +1,358 @@
+/* styles_dark.txt - QSS for Dark Theme (Enhanced) */
+
+QMainWindow {
+    background-color: #2c3e50; /* Dark blue-grey */
+    color: #ecf0f1; /* Light grey/white text */
+}
+
+QWidget { /* General default for widgets */
+    background-color: #2c3e50;
+    color: #ecf0f1;
+    font-family: "Segoe UI", Arial, sans-serif; /* Modern font, يمكن تغييره */
+    font-size: 10pt; /* Default font size */
+}
+
+QFrame#HeaderFrame {
+    background-color: #34495e; /* Slightly lighter dark blue-grey */
+    border-bottom: 1px solid #4a617a; /* Darker border */
+    padding: 8px 10px; /* Increased padding */
+    min-height: 40px; /* Ensure enough height */
+}
+
+QFrame#HeaderFrame QLabel { /* Labels within HeaderFrame */
+    color: #ecf0f1;
+    font-size: 14pt;
+    font-weight: bold;
+    background-color: transparent; /* Ensure no override from general QWidget */
+}
+
+QLabel#datetime_label { /* Specific ID for datetime label */
+    font-size: 10pt;
+    font-weight: normal;
+    color: #bdc3c7; /* Lighter grey */
+    background-color: transparent;
+}
+
+QLabel#section_title_label {
+    font-size: 12pt;
+    font-weight: bold;
+    color: #1abc9c; /* Teal accent */
+    padding: 8px 5px; /* Increased padding */
+    background-color: transparent;
+}
+
+QLabel { /* General labels not covered by specific rules */
+    color: #ecf0f1;
+    padding: 3px;
+    background-color: transparent;
+}
+
+QLineEdit {
+    background-color: #34495e;
+    color: #ecf0f1;
+    border: 1px solid #566573; /* Softer border */
+    border-radius: 4px;
+    padding: 8px; /* Increased padding */
+    font-size: 10pt;
+}
+
+QLineEdit:focus {
+    border: 1px solid #1abc9c; /* Teal border on focus */
+    background-color: #3b5168; /* Slightly lighter on focus */
+}
+
+QPushButton {
+    background-color: #3498db; /* Bright blue */
+    color: white;
+    border: none;
+    border-radius: 5px; /* Slightly more rounded */
+    padding: 10px 18px; /* Increased padding for larger buttons */
+    font-size: 10pt;
+    font-weight: bold;
+    min-height: 28px; /* Ensure minimum height */
+    margin: 3px; /* Add small margin around buttons */
+}
+
+QPushButton:hover {
+    background-color: #2980b9; /* Darker blue on hover */
+}
+
+QPushButton:pressed {
+    background-color: #1f618d; /* Even darker blue when pressed */
+}
+
+QPushButton:disabled {
+    background-color: #566573; /* Greyed out for disabled */
+    color: #95a5a6;
+}
+
+/* Specific button styling using Object Names */
+QPushButton#add_member_button {
+    background-color: #2ecc71; /* Green */
+}
+QPushButton#add_member_button:hover {
+    background-color: #27ae60;
+}
+
+QPushButton#remove_member_button {
+    background-color: #e74c3c; /* Red */
+}
+QPushButton#remove_member_button:hover {
+    background-color: #c0392b;
+}
+
+QPushButton#start_button {
+    background-color: #f39c12; /* Orange */
+}
+QPushButton#start_button:hover {
+    background-color: #e67e22;
+}
+
+QPushButton#stop_button {
+    background-color: #e74c3c; /* Red for stop, matching remove */
+}
+QPushButton#stop_button:hover {
+    background-color: #c0392b;
+}
+
+QPushButton#toggle_details_button {
+    background-color: #9b59b6; /* Purple */
+    padding: 8px 15px; /* Slightly smaller padding for this one if needed */
+}
+QPushButton#toggle_details_button:hover {
+    background-color: #8e44ad;
+}
+
+
+QTableWidget {
+    background-color: #34495e;
+    color: #ecf0f1;
+    border: 1px solid #4a617a; /* Darker border for table */
+    gridline-color: #40556b; /* Slightly more subtle grid lines */
+    selection-background-color: #0078d7; /* ** لون تحديد أكثر وضوحًا ** */
+    selection-color: #ffffff; /* ** لون نص أبيض للتحديد ** */
+    font-size: 10pt; /* Increased font size for table items */
+    alternate-background-color: #3a5067; /* Alternating row color */
+}
+
+QHeaderView::section {
+    background-color: #4a617a; /* Darker header background */
+    color: #ecf0f1;
+    padding: 8px 5px 8px 10px; /* Top, Right, Bottom, Left padding for Arabic (right-aligned) */
+    border-top: 1px solid #566573;
+    border-bottom: 2px solid #3498db; /* Accent border bottom */
+    border-right: 1px solid #34495e;
+    font-weight: bold;
+    font-size: 10pt;
+    text-align: right; /* Align header text to the right for Arabic */
+}
+QHeaderView::section:first {
+    border-left: 1px solid #566573;
+}
+QHeaderView::section:last {
+    border-right: 1px solid #566573; /* Keep right border for last section */
+}
+
+
+QTableWidget::item {
+    padding: 7px 10px; /* Increased padding for items (Top/Bottom, Left/Right) */
+    border-bottom: 1px dotted #40556b; /* Dotted separator for items */
+    /* Vertical alignment is best controlled in Python per item type */
+}
+
+QTableWidget::item:selected {
+    background-color: #0078d7; /* ** لون تحديد أكثر وضوحًا ** */
+    color: #ffffff; /* ** لون نص أبيض للتحديد ** */
+}
+
+/* يمكنك إضافة هذا إذا كنت تريد لونًا مختلفًا عندما يكون الجدول نشطًا */
+QTableWidget:focus QTableWidget::item:selected {
+    background-color: #005fa3; /* لون أغمق قليلاً عند التركيز على الجدول */
+    color: #ffffff;
+}
+
+
+QStatusBar {
+    background-color: #34495e;
+    color: #bdc3c7; /* Lighter grey for status bar text */
+    border-top: 1px solid #4a617a;
+    font-size: 9pt;
+    padding: 3px 0; /* Add some vertical padding */
+}
+
+QStatusBar QLabel { /* Labels within StatusBar */
+    color: #bdc3c7;
+    padding: 0 8px; /* Increased padding for status bar labels */
+    background-color: transparent;
+}
+
+QDialog {
+    background-color: #2c3e50;
+    color: #ecf0f1;
+    border: 1px solid #1a252f; /* Darkest border for dialogs */
+    padding: 10px;
+}
+
+QDialog QLabel { /* Labels within Dialogs */
+    color: #ecf0f1;
+    background-color: transparent;
+    padding: 4px;
+}
+
+QDialogButtonBox QPushButton {
+    min-width: 90px; /* Ensure buttons in dialogs have a good size */
+    padding: 8px 15px;
+    margin: 5px;
+}
+
+QScrollBar:vertical {
+    border: none;
+    background: #2c3e50; /* Match main background */
+    width: 14px; /* Slightly wider */
+    margin: 14px 0 14px 0;
+}
+QScrollBar::handle:vertical {
+    background: #566573; /* Handle color */
+    min-height: 30px; /* Taller handle */
+    border-radius: 7px; /* More rounded */
+}
+QScrollBar::handle:vertical:hover {
+    background: #7f8c8d;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    border: none;
+    background: none;
+    height: 14px;
+    subcontrol-position: top;
+    subcontrol-origin: margin;
+}
+QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical {
+     background: #7f8c8d; /* More visible arrows */
+     width: 5px;
+     height: 5px;
+     border-radius: 2px;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+QScrollBar:horizontal {
+    border: none;
+    background: #2c3e50;
+    height: 14px;
+    margin: 0 14px 0 14px;
+}
+QScrollBar::handle:horizontal {
+    background: #566573;
+    min-width: 30px;
+    border-radius: 7px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #7f8c8d;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    border: none;
+    background: none;
+    width: 14px;
+    subcontrol-position: left; /* or right */
+    subcontrol-origin: margin;
+}
+QScrollBar::left-arrow:horizontal, QScrollBar::right-arrow:horizontal {
+     background: #7f8c8d;
+     width: 5px;
+     height: 5px;
+     border-radius: 2px;
+}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: none;
+}
+
+QMessageBox {
+    background-color: #34495e; /* Slightly lighter than main window for distinction */
+    border: 1px solid #7f8c8d;
+}
+QMessageBox QLabel { /* For the message text */
+    color: #ecf0f1;
+    font-size: 10pt;
+    padding: 15px; /* More padding */
+    background-color: transparent;
+    min-width: 250px; /* Ensure message box is not too small */
+}
+QMessageBox QPushButton { /* Buttons inside QMessageBox */
+    background-color: #3498db;
+    color: white;
+    border-radius: 4px;
+    padding: 8px 18px;
+    min-width: 80px;
+    font-weight: normal;
+    margin: 5px;
+}
+QMessageBox QPushButton:hover {
+    background-color: #2980b9;
+}
+QMessageBox QPushButton:pressed {
+    background-color: #1f618d;
+}
+
+QToolTip {
+    background-color: #1a252f; /* Darker tooltip */
+    color: #ecf0f1;
+    border: 1px solid #7f8c8d;
+    padding: 6px; /* Increased padding */
+    opacity: 240; /* Slightly more opaque */
+    font-size: 9pt;
+    border-radius: 3px;
+}
+
+/* Styles for ToastNotification based on toastType property */
+/* Ensure these object names match those set in gui_components.py */
+
+QWidget#toastBackground {
+    background-color: #424242; /* Default info background */
+    border-radius: 5px;
+    border: 1px solid #555555;
+}
+QLabel#toastMessageLabel {
+    color: #ffffff;
+    background-color: transparent;
+}
+QLabel#toastIconLabel {
+    background-color: transparent;
+}
+
+/* Error Toast */
+QWidget#toastBackground[toastType="error"] {
+    background-color: #D32F2F; /* Red for error */
+    border: 1px solid #C62828;
+}
+QLabel#toastMessageLabel[toastType="error"] {
+    color: #ffffff;
+}
+
+/* Success Toast */
+QWidget#toastBackground[toastType="success"] {
+    background-color: #388E3C; /* Green for success */
+    border: 1px solid #2E7D32;
+}
+QLabel#toastMessageLabel[toastType="success"] {
+    color: #ffffff;
+}
+
+/* Warning Toast */
+QWidget#toastBackground[toastType="warning"] {
+    background-color: #FFA000; /* Amber for warning */
+    border: 1px solid #FF8F00;
+}
+QLabel#toastMessageLabel[toastType="warning"] {
+    color: #212121; /* Darker text for better contrast on amber */
+}
+
+/* Info Toast (if different from default, though default is already info-like) */
+QWidget#toastBackground[toastType="info"] {
+    background-color: #1976D2; /* Blue for info */
+    border: 1px solid #1565C0;
+}
+QLabel#toastMessageLabel[toastType="info"] {
+    color: #ffffff;
+}
+

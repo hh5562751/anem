@@ -1,0 +1,8 @@
+{
+    "min_member_delay": 5,
+    "max_member_delay": 15,
+    "monitoring_interval": 1,
+    "backoff_429": 60,
+    "backoff_general": 5,
+    "request_timeout": 30
+}
