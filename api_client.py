@@ -33,6 +33,7 @@ class AnemAPIClient:
         current_delay_general = self.initial_backoff_general
         current_delay_429 = self.initial_backoff_429
 
+        last_error_message_for_request = "فشل غير محدد" # قيمة افتراضية للخطأ الأخير
 
         while current_retry <= max_retries_for_this_call:
             actual_delay_to_use = current_delay_general 
@@ -52,8 +53,9 @@ class AnemAPIClient:
                     headers['Content-Type'] = 'application/json' 
                     response = self.session.post(url, json=data, headers=headers, timeout=request_timeout_val, verify=False)
                 else:
-                    logger.error(f"الطريقة {method} غير مدعومة لـ {url}")
-                    return None, f"الطريقة {method} غير مدعومة"
+                    unsupported_method_error = f"الطريقة {method} غير مدعومة لـ {url}"
+                    logger.error(unsupported_method_error)
+                    return None, unsupported_method_error
 
                 logger.debug(f"استجابة الخادم لـ {url}: {response.status_code}")
 
@@ -61,106 +63,128 @@ class AnemAPIClient:
                     actual_delay_to_use = current_delay_429
                     logger.warning(f"خطأ 429 (طلبات كثيرة جدًا) من الخادم لـ {url}. الانتظار {actual_delay_to_use} ثانية.")
                     if current_retry >= max_retries_for_this_call:
-                        logger.error(f"تم تجاوز الحد الأقصى لإعادة المحاولة (429) لـ {url}")
-                        return None, "طلبات كثيرة جدًا للخادم (429). يرجى الانتظار والمحاولة لاحقًا."
+                        final_429_error = "طلبات كثيرة جدًا للخادم (429). يرجى الانتظار والمحاولة لاحقًا."
+                        logger.error(f"تم تجاوز الحد الأقصى لإعادة المحاولة (429) لـ {url}. الرسالة المُعادة: {final_429_error}")
+                        return None, final_429_error
                     time.sleep(actual_delay_to_use)
                     current_delay_429 = min(current_delay_429 * 2, MAX_BACKOFF_DELAY) 
                     current_retry += 1
+                    last_error_message_for_request = "طلبات كثيرة جدًا (429)" # تحديث رسالة الخطأ الأخيرة
                     continue
                 
-                actual_delay_to_use = current_delay_general
+                actual_delay_to_use = current_delay_general # إعادة التعيين إلى التأخير العام إذا لم يكن الخطأ 429
                 response.raise_for_status() 
                 
                 if is_site_check: 
                     return True, None 
                 
                 try:
-                    # For RendezVous/Create, the "Eligible:false" response might be JSON but with a specific structure.
-                    # Or it could be non-JSON text as handled before.
                     json_response = response.json()
-                    # If it's JSON and from RendezVous/Create, check for "Eligible": false specifically
                     if endpoint == 'RendezVous/Create' and isinstance(json_response, dict) and json_response.get("Eligible") is False:
                         logger.warning(f"استجابة JSON من {url} تشير إلى Eligible:false. الاستجابة: {json_response}")
-                        # Return the JSON as is, the caller (thread) will interpret "Eligible"
-                        return json_response, None # No error string, as it's a valid (though negative) API response
+                        return json_response, None 
                     return json_response, None
                 except json.JSONDecodeError:
-                    logger.error(f"خطأ في تحليل استجابة JSON من {url}. الاستجابة (أول 200 حرف): {response.text[:200] if response else 'No response object'}")
+                    json_decode_error_msg_short = "خطأ في تحليل البيانات المستلمة من الخادم (ليست JSON)."
+                    json_decode_error_msg_full = f"خطأ في تحليل استجابة JSON من {url}. الاستجابة (أول 200 حرف): {response.text[:200] if response else 'No response object'}"
+                    logger.error(json_decode_error_msg_full)
+                    
                     if endpoint == 'RendezVous/Create' and response and response.text:
                         logger.warning(f"استجابة نصية غير JSON من {url} ولكنها تحتوي على نص: {response.text[:200]}")
-                        # Heuristic: if "Eligible":false is in the raw text, treat it as such
                         if "\"Eligible\":false" in response.text.lower():
-                             # Try to construct a dict similar to what the thread expects
-                             message_from_text = "نعتذر منكم! لا يمكنكم حجز موعد للاستفادة من منحة البطالة لعدم استيفائكم لأحد شروط الأهلية اللازمة." # Default or extract if possible
-                             # This is a guess, the actual message might be different or not present in raw text
-                             return {"Eligible": False, "message": message_from_text, "raw_text": True}, None
+                             message_from_text = "نعتذر منكم! لا يمكنكم حجز موعد للاستفادة من منحة البطالة لعدم استيفائكم لأحد شروط الأهلية اللازمة." 
+                             constructed_response = {"Eligible": False, "message": message_from_text, "raw_text": True}
+                             logger.info(f"تم بناء استجابة Eligible:false من النص الخام لـ {url}: {constructed_response}")
+                             return constructed_response, None
 
-                        return {"raw_text": response.text, "is_non_json_success_heuristic": "Eligible" in response.text}, "استجابة نصية غير متوقعة من الخادم."
-                    return None, "خطأ في تحليل البيانات المستلمة من الخادم (ليست JSON)."
+                        # إذا لم يكن Eligible:false، أرجع خطأ تحليل مع النص الخام
+                        raw_text_error_detail = "استجابة نصية غير متوقعة من الخادم."
+                        logger.error(f"الطلب إلى {url} فشل بسبب استجابة نصية غير متوقعة. الرسالة المُعادة: {raw_text_error_detail}")
+                        return {"raw_text": response.text, "is_non_json_success_heuristic": "Eligible" in response.text}, raw_text_error_detail
+                    
+                    logger.error(f"الطلب إلى {url} فشل بسبب خطأ في تحليل JSON. الرسالة المُعادة: {json_decode_error_msg_short}")
+                    return None, json_decode_error_msg_short
 
             except requests.exceptions.SSLError as e:
                 error_message = f"خطأ SSL عند الاتصال بـ {url}: {str(e)}"
                 if is_site_check: return False, error_message
                 logger.error(f"{log_prefix} (محاولة {current_retry + 1}): {error_message}")
+                last_error_message_for_request = error_message
             except requests.exceptions.ConnectTimeout as e: 
                 error_message = f"انتهت مهلة الاتصال بالخادم ({url}): {str(e)}"
                 if is_site_check: return False, error_message
                 logger.warning(f"{log_prefix} (محاولة {current_retry + 1}): {error_message}")
+                last_error_message_for_request = error_message
             except requests.exceptions.ReadTimeout as e: 
                 error_message = f"انتهت مهلة القراءة من الخادم ({url}): {str(e)}"
                 if is_site_check: return False, error_message
                 logger.warning(f"{log_prefix} (محاولة {current_retry + 1}): {error_message}")
-            except requests.exceptions.Timeout as e: 
+                last_error_message_for_request = error_message
+            except requests.exceptions.Timeout as e: # هذا يشمل ConnectTimeout و ReadTimeout بشكل عام
                 error_message = f"انتهت مهلة الطلب لـ {url}: {str(e)}"
                 if is_site_check: return False, error_message
                 logger.warning(f"{log_prefix} (محاولة {current_retry + 1}): {error_message}")
+                last_error_message_for_request = error_message
             except requests.exceptions.ConnectionError as e:
                 error_message = f"خطأ في الاتصال بالخادم ({url}): {str(e)}"
                 if is_site_check: return False, error_message
                 logger.error(f"{log_prefix} (محاولة {current_retry + 1}): {error_message}")
+                last_error_message_for_request = error_message
             except requests.exceptions.HTTPError as e: 
                 status_code = response.status_code if response else "N/A"
                 error_message = f"خطأ HTTP {status_code} من الخادم لـ {url}: {str(e)}"
                 if is_site_check: return False, error_message
                 logger.error(f"{log_prefix} (محاولة {current_retry + 1}): {error_message}. الاستجابة: {response.text[:200] if response else 'N/A'}")
+                last_error_message_for_request = error_message
                 
-                # Even for HTTPError, if it's RendezVous/Create, try to parse JSON for "Eligible":false
                 if endpoint == 'RendezVous/Create' and response is not None:
                     try:
                         parsed_error_json = response.json()
                         if isinstance(parsed_error_json, dict) and parsed_error_json.get("Eligible") is False:
                             logger.warning(f"استجابة خطأ HTTP من {url} ولكنها JSON مع Eligible:false. الاستجابة: {parsed_error_json}")
-                            return parsed_error_json, None # Valid API response indicating ineligibility
-                        # If not "Eligible":false, then it's a genuine error to be returned as such
-                        return parsed_error_json, f"خطأ من الخادم ({status_code}) مع تفاصيل JSON."
-                    except json.JSONDecodeError: # If it's not JSON
+                            return parsed_error_json, None 
+                        
+                        # إذا لم يكن Eligible:false، فهو خطأ حقيقي
+                        http_json_error_detail = f"خطأ من الخادم ({status_code}) مع تفاصيل JSON."
+                        logger.error(f"الطلب إلى {url} فشل بخطأ HTTP مع تفاصيل JSON. الرسالة المُعادة: {http_json_error_detail}")
+                        return parsed_error_json, http_json_error_detail
+                    except json.JSONDecodeError: 
+                        http_text_error_detail = f"خطأ من الخادم ({status_code}) مع استجابة نصية."
                         logger.warning(f"استجابة نصية غير JSON لخطأ HTTP من {url}: {response.text[:200]}")
-                        return {"raw_text": response.text, "http_status_code": status_code}, f"خطأ من الخادم ({status_code}) مع استجابة نصية."
+                        logger.error(f"الطلب إلى {url} فشل بخطأ HTTP مع استجابة نصية. الرسالة المُعادة: {http_text_error_detail}")
+                        return {"raw_text": response.text, "http_status_code": status_code}, http_text_error_detail
             except requests.exceptions.RequestException as e: 
                 error_message = f"خطأ عام في الطلب لـ {url}: {str(e)}"
                 if is_site_check: return False, error_message
                 logger.error(f"{log_prefix} (محاولة {current_retry + 1}): {error_message}")
-                return None, "حدث خطأ عام أثناء محاولة الاتصال بالخادم." 
+                generic_request_error_msg = "حدث خطأ عام أثناء محاولة الاتصال بالخادم."
+                logger.error(f"الطلب إلى {url} فشل بخطأ عام. الرسالة المُعادة: {generic_request_error_msg}")
+                return None, generic_request_error_msg 
 
             if current_retry >= max_retries_for_this_call:
-                logger.error(f"تم تجاوز الحد الأقصى لإعادة المحاولة لـ {url} بعد خطأ: {error_message}")
-                final_error_message = f"فشل الاتصال بالخادم بعد عدة محاولات. ({error_message.split(':')[0].strip()})" 
-                return None, final_error_message
+                final_error_message_after_retries = f"فشل الاتصال بالخادم بعد عدة محاولات. ({last_error_message_for_request.split(':')[0].strip()})" 
+                logger.error(f"تم تجاوز الحد الأقصى لإعادة المحاولة لـ {url} بعد خطأ: {last_error_message_for_request}. الرسالة المُعادة: {final_error_message_after_retries}")
+                return None, final_error_message_after_retries
             
             time.sleep(actual_delay_to_use)
             current_delay_general = min(current_delay_general * 2, MAX_BACKOFF_DELAY) 
             current_retry += 1
         
-        return None, "فشل الاتصال بالخادم بعد جميع المحاولات."
+        # إذا خرج من الحلقة دون نجاح أو إرجاع مبكر
+        ultimate_fallback_error = "فشل الاتصال بالخادم بعد جميع المحاولات."
+        logger.error(f"الطلب إلى {url} فشل بعد جميع المحاولات (fallback). الرسالة المُعادة: {ultimate_fallback_error}")
+        return None, ultimate_fallback_error
 
 
     def check_main_site_availability(self):
         logger.info(f"بدء فحص توفر الموقع الرئيسي: {MAIN_SITE_CHECK_URL}")
-        available, error_msg = self._make_request('GET', '', is_site_check=True)
+        # يتم التعامل مع is_site_check داخل _make_request لتعطيل إعادة المحاولة
+        available, error_msg = self._make_request('GET', '', is_site_check=True) 
         if error_msg: 
+            # لا نسجل كـ error هنا لأن هذا الفحص دوري، والخطأ متوقع أحيانًا
             logger.warning(f"فحص توفر الموقع فشل: {error_msg}")
-            return False 
-        return available 
+            return False, error_msg # إرجاع رسالة الخطأ للمستهلك (MonitoringThread)
+        return available, None
 
 
     def validate_candidate(self, wassit_number, identity_doc_number):
@@ -186,7 +210,7 @@ class AnemAPIClient:
             "preInscriptionId": pre_inscription_id,
             "ccp": ccp,
             "nomCcp": nom_ccp_fr, 
-            "prenomCcp": nom_ccp_fr, # Note: Original code had nomCcp and prenomCcp swapped. Corrected to match typical API patterns. If API expects prenomCcp to be nom_fr, this needs to be prenom_ccp_fr as per variable name. Assuming nomCcp is nom_fr and prenomCcp is prenom_fr.
+            "prenomCcp": prenom_ccp_fr, 
             "rdvdate": rdv_date,
             "demandeurId": demandeur_id
         }
@@ -196,5 +220,10 @@ class AnemAPIClient:
     def download_pdf(self, report_type, pre_inscription_id):
         endpoint = f"download/{report_type}"
         params = {"PreInscriptionId": pre_inscription_id}
+        # بالنسبة لتحميل PDF، قد تكون الاستجابة الناجحة هي البيانات الثنائية مباشرة
+        # أو JSON يحتوي على base64. _make_request يتعامل مع JSON.
+        # إذا كانت الاستجابة بيانات ثنائية مباشرة ولم تكن JSON، سيفشل تحليل JSON.
+        # هذا يتطلب معالجة خاصة في الخيط المستدعي إذا كانت طبيعة الاستجابة يمكن أن تختلف.
+        # حاليًا، الكود يفترض أن استجابة PDF الناجحة ستكون JSON مع حقل "base64Pdf".
         return self._make_request('GET', endpoint, params=params)
 
