@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTableWidget, QTableWidgetItem,
     QMessageBox, QHeaderView, QStatusBar, QFrame, QAction, QStyle,
-    QMenu, QLineEdit, QComboBox, QAbstractItemView 
+    QMenu, QLineEdit, QComboBox, QAbstractItemView, QDesktopWidget
 )
 from PyQt5.QtCore import QTimer, Qt, QDateTime, QLocale, QStandardPaths, QUrl
 from PyQt5.QtGui import QIcon, QColor, QPalette, QDesktopServices, QFontDatabase # Added QFontDatabase
@@ -82,7 +82,13 @@ class AnemApp(QMainWindow):
 
         QApplication.setLayoutDirection(Qt.RightToLeft) 
         self.setWindowTitle("برنامج إدارة مواعيد منحة البطالة")
-        self.setGeometry(100, 100, 1450, 750) 
+        
+        desktop = QApplication.desktop()
+        available_geometry = desktop.availableGeometry(self)
+        self.setGeometry(available_geometry)
+        self.setWindowState(Qt.WindowMaximized)
+
+
         logger.info("بدء تشغيل التطبيق")
 
         self.settings = {}
@@ -143,6 +149,12 @@ class AnemApp(QMainWindow):
         self.toggle_search_filter_action.triggered.connect(self.toggle_search_filter_bar)
         tools_menu.addAction(self.toggle_search_filter_action)
 
+        self.toggle_details_action = QAction("إظهار التفاصيل", self)
+        self.toggle_details_action.setCheckable(True)
+        self.toggle_details_action.setChecked(False) 
+        self.toggle_details_action.triggered.connect(self.toggle_column_visibility)
+        tools_menu.addAction(self.toggle_details_action)
+
         file_menu.addSeparator()
         exit_action = QAction(QIcon.fromTheme("application-exit"), "خروج", self)
         exit_action.triggered.connect(self.close)
@@ -201,12 +213,19 @@ class AnemApp(QMainWindow):
         section_title_label.setObjectName("section_title_label")
         main_controls_layout.addWidget(section_title_label, alignment=Qt.AlignLeft | Qt.AlignVCenter)
         main_controls_layout.addStretch()
-        self.toggle_details_button = QPushButton("إظهار التفاصيل", self)
-        self.toggle_details_button.setObjectName("toggle_details_button")
-        self.toggle_details_button.setCheckable(True) 
-        self.toggle_details_button.toggled.connect(self.toggle_column_visibility)
-        main_controls_layout.addWidget(self.toggle_details_button, alignment=Qt.AlignRight | Qt.AlignVCenter)
         main_layout.addWidget(main_controls_frame)
+
+        # Initialize StatusBar and its labels BEFORE they might be used by toggle_column_visibility
+        self.statusBar = QStatusBar()
+        self.setStatusBar(self.statusBar)
+        self.status_bar_label = QLabel("جاهز.")
+        self.last_scan_label = QLabel("") 
+        self.countdown_label = QLabel("") 
+        self.statusBar.addWidget(self.status_bar_label, 1) 
+        self.statusBar.addPermanentWidget(self.countdown_label) 
+        self.statusBar.addPermanentWidget(self.last_scan_label) 
+        # Update status bar message after its labels are created
+        # self.update_status_bar_message("التطبيق جاهز.", is_general_message=True) # This can be called later if needed
 
         self.table = QTableWidget(self)
         self.table.setColumnCount(self.COL_DETAILS + 1) 
@@ -221,10 +240,10 @@ class AnemApp(QMainWindow):
         self.table.setContextMenuPolicy(Qt.CustomContextMenu) 
         self.table.customContextMenuRequested.connect(self.show_table_context_menu)
 
-        self.table.setColumnHidden(self.COL_NIN, True)
-        self.table.setColumnHidden(self.COL_WASSIT, True)
-        self.table.setColumnHidden(self.COL_CCP, True)
-        self.table.setColumnHidden(self.COL_PHONE_NUMBER, True) 
+        # Initial column visibility based on the new action's state
+        # This call is now safe as status bar labels are initialized
+        self.toggle_column_visibility(self.toggle_details_action.isChecked())
+
 
         header.setSectionResizeMode(self.COL_ICON, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(self.COL_FULL_NAME_AR, QHeaderView.ResizeToContents) 
@@ -264,16 +283,10 @@ class AnemApp(QMainWindow):
         self.stop_button.clicked.connect(self.stop_monitoring)
         bottom_controls_layout.addWidget(self.stop_button)
         main_layout.addLayout(bottom_controls_layout)
+        
+        # Initial status bar message after all UI elements that might affect it are set up
+        self.update_status_bar_message("التطبيق جاهز.", is_general_message=True)
 
-        self.statusBar = QStatusBar()
-        self.setStatusBar(self.statusBar)
-        self.status_bar_label = QLabel("جاهز.")
-        self.last_scan_label = QLabel("") 
-        self.countdown_label = QLabel("") 
-        self.statusBar.addWidget(self.status_bar_label, 1) 
-        self.statusBar.addPermanentWidget(self.countdown_label) 
-        self.statusBar.addPermanentWidget(self.last_scan_label) 
-        self.update_status_bar_message("التطبيق جاهز.", is_general_message=True) 
 
     def toggle_search_filter_bar(self, checked):
         self.search_filter_frame.setVisible(checked)
@@ -734,7 +747,7 @@ class AnemApp(QMainWindow):
     def update_datetime(self):
         now = QDateTime.currentDateTime()
         arabic_locale = QLocale(QLocale.Arabic, QLocale.Algeria) 
-        self.datetime_label.setText(arabic_locale.toString(now, "dddd, dd MMMM yyyy - hh:mm:ss AP")) # Corrected date format
+        self.datetime_label.setText(arabic_locale.toString(now, "dddd, dd MMMM finalList - hh:mm:ss AP")) # Corrected date format
 
     def toggle_column_visibility(self, checked):
         logger.info(f"تبديل إظهار التفاصيل: {'إظهار' if checked else 'إخفاء'}")
@@ -742,7 +755,7 @@ class AnemApp(QMainWindow):
         self.table.setColumnHidden(self.COL_WASSIT, not checked)
         self.table.setColumnHidden(self.COL_CCP, not checked)
         self.table.setColumnHidden(self.COL_PHONE_NUMBER, not checked) 
-        self.toggle_details_button.setText("إخفاء التفاصيل" if checked else "إظهار التفاصيل")
+        self.toggle_details_action.setText("إخفاء التفاصيل" if checked else "إظهار التفاصيل")
         self.update_status_bar_message(f"تم {'إظهار' if checked else 'إخفاء'} الأعمدة التفصيلية.", is_general_message=True) 
 
     def update_active_row_spinner_display(self):
@@ -1302,16 +1315,25 @@ class AnemApp(QMainWindow):
             final_message = f"{member_display}: {message}"
         
         logger.info(f"رسالة شريط الحالة: {final_message}")
-        self.status_bar_label.setText(final_message)
         
-        if not is_general_message or "انتهاء دورة الفحص" in message or "بدء دورة فحص جديدة" in message or "استئناف المراقبة" in message or "الموقع لا يزال غير متاح" in message or "اكتمل الفحص الأولي" in message:
-            self.last_scan_label.setText(f"آخر تحديث: {time.strftime('%H:%M:%S')}")
-        elif is_general_message: 
-            self.last_scan_label.setText("")
-            self.countdown_label.setText("") 
+        # Check if status_bar_label exists before using it
+        if hasattr(self, 'status_bar_label'):
+            self.status_bar_label.setText(final_message)
+        
+        if hasattr(self, 'last_scan_label'): # Check if last_scan_label exists
+            if not is_general_message or "انتهاء دورة الفحص" in message or "بدء دورة فحص جديدة" in message or "استئناف المراقبة" in message or "الموقع لا يزال غير متاح" in message or "اكتمل الفحص الأولي" in message:
+                self.last_scan_label.setText(f"آخر تحديث: {time.strftime('%H:%M:%S')}")
+            elif is_general_message: 
+                self.last_scan_label.setText("")
+        
+        if hasattr(self, 'countdown_label'): # Check if countdown_label exists
+            if is_general_message and hasattr(self, 'last_scan_label') and self.last_scan_label.text() == "": # Clear countdown only if last_scan is also cleared
+                 self.countdown_label.setText("")
+
 
     def update_countdown_timer_display(self, time_remaining_str):
-        self.countdown_label.setText(time_remaining_str)
+        if hasattr(self, 'countdown_label'): # Check if countdown_label exists
+            self.countdown_label.setText(time_remaining_str)
 
 
     def start_monitoring(self):
@@ -1367,7 +1389,7 @@ class AnemApp(QMainWindow):
             self.remove_member_button.setEnabled(True)
             self.update_status_bar_message("تم إيقاف المراقبة بنجاح.", is_general_message=True) 
             self._show_toast("تم إيقاف المراقبة.", type="info")
-            self.countdown_label.setText("") 
+            self.update_countdown_timer_display("") # Clear countdown on stop
             for i in range(len(self.members_list)):
                 if self.members_list[i].is_processing: 
                     self.members_list[i].is_processing = False
@@ -1471,7 +1493,6 @@ class AnemApp(QMainWindow):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    # لا تستدعي load_custom_fonts() هنا مباشرة لأنها دالة عادية الآن
-    main_window = AnemApp() # __init__ سيستدعي load_custom_fonts()
+    main_window = AnemApp() 
     main_window.show()
     sys.exit(app.exec_())
