@@ -2,7 +2,8 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QDialog, QFormLayout, QDialogButtonBox,
-    QSpinBox, QStyle, QApplication, QDesktopWidget, QTextEdit # Added QTextEdit
+    QSpinBox, QStyle, QApplication, QDesktopWidget, QTextEdit,
+    QScrollArea # Added QScrollArea
 )
 from PyQt5.QtCore import Qt, QTimer, QPoint, QEasingCurve, QPropertyAnimation, QRegularExpression
 from PyQt5.QtGui import QIcon, QRegularExpressionValidator, QColor
@@ -333,18 +334,31 @@ class ViewMemberDialog(QDialog):
         self.setWindowTitle(f"عرض معلومات العضو: {self.member.get_full_name_ar() or self.member.nin}")
         self.setModal(True)
         self.setLayoutDirection(Qt.RightToLeft)
-        self.setMinimumWidth(500) # Increased width for more details
+        self.setMinimumWidth(550) # Increased width for more details
+        self.setMinimumHeight(400) # Set a minimum height
+        # self.setMaximumHeight(650) # Optional: Set a maximum height if preferred over full scroll
 
-        layout = QFormLayout(self)
-        layout.setLabelAlignment(Qt.AlignRight)
-        layout.setSpacing(10) # Add some spacing between rows
+        # Main layout for the dialog
+        main_dialog_layout = QVBoxLayout(self)
 
-        # Helper function to add a read-only field
+        # Scroll Area
+        scroll_area = QScrollArea(self)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded) # Show horizontal if needed
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)   # Show vertical if needed
+
+        # Content widget for the scroll area
+        content_widget = QWidget()
+        form_layout = QFormLayout(content_widget) # Use form_layout for the content_widget
+        form_layout.setLabelAlignment(Qt.AlignRight)
+        form_layout.setSpacing(10)
+
+        # Helper function to add a read-only field to the form_layout
         def add_read_only_field(label_text, value_text):
             value_edit = QLineEdit(str(value_text) if value_text is not None else "")
             value_edit.setReadOnly(True)
-            value_edit.setStyleSheet("QLineEdit:read-only { background-color: #3E4A5C; color: #E0E0E0; border: 1px solid #4A5568; }") # Style for read-only
-            layout.addRow(label_text, value_edit)
+            value_edit.setStyleSheet("QLineEdit:read-only { background-color: #3E4A5C; color: #E0E0E0; border: 1px solid #4A5568; }")
+            form_layout.addRow(label_text, value_edit)
 
         add_read_only_field("الاسم الكامل (عربي):", self.member.get_full_name_ar())
         add_read_only_field("الاسم (لاتيني):", self.member.nom_fr)
@@ -358,32 +372,49 @@ class ViewMemberDialog(QDialog):
         add_read_only_field("رقم الحساب البريدي (CCP):", ccp_display)
         add_read_only_field("رقم الهاتف:", self.member.phone_number)
         add_read_only_field("الحالة الحالية:", self.member.status)
-        add_read_only_field("تاريخ الموعد:", self.member.rdv_date or "لا يوجد")
         
-        # For longer details, use QTextEdit for better readability and potential scroll
+        rdv_date_display = self.member.rdv_date or "لا يوجد"
+        if self.member.rdv_date:
+            if self.member.rdv_source == "system":
+                rdv_date_display += " (نظام)"
+            elif self.member.rdv_source == "discovered":
+                 rdv_date_display += " (مكتشف)"
+        add_read_only_field("تاريخ الموعد:", rdv_date_display)
+        
         details_label = QLabel("آخر تحديث/خطأ (كامل):")
         self.details_text_edit = QTextEdit(self.member.full_last_activity_detail or "لا يوجد")
         self.details_text_edit.setReadOnly(True)
-        self.details_text_edit.setFixedHeight(80) # Set a fixed height, or adjust as needed
+        self.details_text_edit.setFixedHeight(80) 
         self.details_text_edit.setStyleSheet("QTextEdit:read-only { background-color: #3E4A5C; color: #E0E0E0; border: 1px solid #4A5568; }")
-        layout.addRow(details_label, self.details_text_edit)
+        form_layout.addRow(details_label, self.details_text_edit)
 
         add_read_only_field("ID التسجيل المسبق:", self.member.pre_inscription_id or "N/A")
         add_read_only_field("ID طالب الشغل:", self.member.demandeur_id or "N/A")
         add_read_only_field("ID الهيكل:", self.member.structure_id or "N/A")
         add_read_only_field("ID الموعد:", self.member.rdv_id or "N/A")
+        add_read_only_field("مصدر الموعد:", self.member.rdv_source or "غير محدد")
         add_read_only_field("مسار ملف الالتزام:", self.member.pdf_honneur_path or "لم يتم التحميل")
         add_read_only_field("مسار ملف الموعد:", self.member.pdf_rdv_path or "لم يتم التحميل")
         add_read_only_field("لديه تسجيل مسبق فعلي؟:", "نعم" if self.member.has_actual_pre_inscription else "لا")
         add_read_only_field("لديه موعد بالفعل؟:", "نعم" if self.member.already_has_rdv else "لا")
         add_read_only_field("عدد مرات الفشل المتتالية:", str(self.member.consecutive_failures))
-
-
-        self.close_button = QPushButton("إغلاق")
-        self.close_button.clicked.connect(self.accept) # Accept will close the dialog
+        add_read_only_field("مستفيد حاليًا من المنحة؟:", "نعم" if self.member.have_allocation else "لا")
         
+        # Display allocation details if available
+        if self.member.have_allocation and self.member.allocation_details:
+            allocation_details_str = ", ".join(f"{key}: {value}" for key, value in self.member.allocation_details.items())
+            add_read_only_field("تفاصيل الاستفادة:", allocation_details_str or "لا توجد تفاصيل")
+
+
+        # Set the content widget for the scroll area
+        scroll_area.setWidget(content_widget)
+        main_dialog_layout.addWidget(scroll_area) # Add scroll area to the dialog's main layout
+
+        # Buttons layout
         button_layout = QHBoxLayout()
         button_layout.addStretch()
+        self.close_button = QPushButton("إغلاق")
+        self.close_button.clicked.connect(self.accept) 
         button_layout.addWidget(self.close_button)
         button_layout.addStretch()
-        layout.addRow(button_layout) # Add the button layout to the form
+        main_dialog_layout.addLayout(button_layout) # Add button layout to the dialog's main layout

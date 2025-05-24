@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
     QMenu, QLineEdit, QComboBox, QAbstractItemView 
 )
 from PyQt5.QtCore import QTimer, Qt, QDateTime, QLocale, QStandardPaths, QUrl
-from PyQt5.QtGui import QIcon, QColor, QPalette, QDesktopServices 
+from PyQt5.QtGui import QIcon, QColor, QPalette, QDesktopServices, QFontDatabase # Added QFontDatabase
 
 from gui_components import ToastNotification, AddMemberDialog, EditMemberDialog, SettingsDialog, ViewMemberDialog
 from api_client import AnemAPIClient
@@ -31,11 +31,55 @@ from utils import QColorConstants, get_icon_name_for_status
 
 logger = setup_logging()
 
+def load_custom_fonts():
+    """Loads custom fonts from the 'fonts' directory."""
+    font_dir = "fonts" 
+    if not os.path.isdir(font_dir):
+        logger.warning(f"مجلد الخطوط '{font_dir}' غير موجود. لن يتم تحميل الخطوط المخصصة.")
+        return
+
+    font_files = [
+        "Tajawal-Regular.ttf",
+        "Tajawal-Medium.ttf",
+        "Tajawal-Bold.ttf",
+        "Tajawal-ExtraBold.ttf", # From user image
+        "Tajawal-Light.ttf",     # From user image
+        "Tajawal-ExtraLight.ttf",# From user image
+        "Tajawal-Black.ttf"      # From user image
+    ]
+    
+    loaded_fonts_count = 0
+    for font_file in font_files:
+        font_path = os.path.join(font_dir, font_file)
+        if os.path.exists(font_path):
+            font_id = QFontDatabase.addApplicationFont(font_path)
+            if font_id != -1:
+                font_families = QFontDatabase.applicationFontFamilies(font_id)
+                if font_families:
+                    logger.info(f"تم تحميل الخط بنجاح: {font_file} (العائلة: {font_families[0]})")
+                    loaded_fonts_count +=1
+                else:
+                    logger.warning(f"تمت إضافة الخط {font_file} ولكن لم يتم التعرف على عائلته.")
+            else:
+                logger.warning(f"فشل تحميل الخط: {font_file} من المسار: {font_path}")
+        else:
+            logger.warning(f"ملف الخط غير موجود: {font_path}")
+    
+    if loaded_fonts_count > 0:
+        logger.info(f"تم تحميل {loaded_fonts_count} خطوط مخصصة بنجاح.")
+    else:
+        logger.warning("لم يتم تحميل أي خطوط مخصصة.")
+
+
 class AnemApp(QMainWindow):
     COL_ICON, COL_FULL_NAME_AR, COL_NIN, COL_WASSIT, COL_CCP, COL_PHONE_NUMBER, COL_STATUS, COL_RDV_DATE, COL_DETAILS = range(9)
 
     def __init__(self):
         super().__init__()
+        
+        # Load custom fonts before initializing UI
+        load_custom_fonts() 
+
         QApplication.setLayoutDirection(Qt.RightToLeft) 
         self.setWindowTitle("برنامج إدارة مواعيد منحة البطالة")
         self.setGeometry(100, 100, 1450, 750) 
@@ -61,7 +105,7 @@ class AnemApp(QMainWindow):
         self.single_check_thread = None 
         self.active_download_all_pdfs_threads = {} 
         
-        self.active_spinner_row_in_view = -1 # فهرس الصف الذي يعرض مؤشر الدوران في الجدول المعروض
+        self.active_spinner_row_in_view = -1 
         self.spinner_char_idx = 0
         self.spinner_chars = ['◐', '◓', '◑', '◒'] 
         self.row_spinner_timer = QTimer(self) 
@@ -71,8 +115,9 @@ class AnemApp(QMainWindow):
         self.monitoring_thread = MonitoringThread(self.members_list, self.settings.copy())
         self.monitoring_thread.update_member_gui_signal.connect(self.update_member_gui_in_table)
         self.monitoring_thread.new_data_fetched_signal.connect(self.update_member_name_in_table)
-        self.monitoring_thread.global_log_signal.connect(self.update_status_bar_message) # توصيل إشارة السجل العام
+        self.monitoring_thread.global_log_signal.connect(self.update_status_bar_message) 
         self.monitoring_thread.member_being_processed_signal.connect(self.handle_member_processing_signal)
+        self.monitoring_thread.countdown_update_signal.connect(self.update_countdown_timer_display) 
 
         self.init_ui() 
         self.load_stylesheet() 
@@ -224,9 +269,11 @@ class AnemApp(QMainWindow):
         self.setStatusBar(self.statusBar)
         self.status_bar_label = QLabel("جاهز.")
         self.last_scan_label = QLabel("") 
+        self.countdown_label = QLabel("") 
         self.statusBar.addWidget(self.status_bar_label, 1) 
+        self.statusBar.addPermanentWidget(self.countdown_label) 
         self.statusBar.addPermanentWidget(self.last_scan_label) 
-        self.update_status_bar_message("التطبيق جاهز.", is_general_message=True) # تعديل: رسالة أولية أوضح
+        self.update_status_bar_message("التطبيق جاهز.", is_general_message=True) 
 
     def toggle_search_filter_bar(self, checked):
         self.search_filter_frame.setVisible(checked)
@@ -258,7 +305,7 @@ class AnemApp(QMainWindow):
         self.filter_value_combo.setVisible(False)
         self.is_filter_active = False
         self.update_table() 
-        self._show_toast("تم مسح الفلتر بنجاح.", type="info") # تعديل: رسالة أوضح
+        self._show_toast("تم مسح الفلتر بنجاح.", type="info") 
         self.update_status_bar_message("تم مسح الفلتر.", is_general_message=True)
 
     def apply_filter_and_search(self):
@@ -273,7 +320,7 @@ class AnemApp(QMainWindow):
         if not self.is_filter_active:
             self.filtered_members_list = list(self.members_list) 
             self.update_table()
-            if hasattr(self, '_last_filter_applied') and self._last_filter_applied: # تعديل: إظهار رسالة فقط إذا كان هناك فلتر سابق
+            if hasattr(self, '_last_filter_applied') and self._last_filter_applied: 
                 self.update_status_bar_message("تم عرض جميع الأعضاء.", is_general_message=True)
                 self._last_filter_applied = False
             return
@@ -309,8 +356,8 @@ class AnemApp(QMainWindow):
         
         self.filtered_members_list = temp_filtered_list
         self.update_table() 
-        self.update_status_bar_message(f"تم تطبيق الفلتر. عدد النتائج: {len(self.filtered_members_list)}", is_general_message=True) # تعديل: رسالة أوضح
-        self._last_filter_applied = True # تعديل: تتبع تطبيق الفلتر
+        self.update_status_bar_message(f"تم تطبيق الفلتر. عدد النتائج: {len(self.filtered_members_list)}", is_general_message=True) 
+        self._last_filter_applied = True 
 
     def show_table_context_menu(self, position):
         selected_items = self.table.selectedItems()
@@ -335,16 +382,17 @@ class AnemApp(QMainWindow):
             original_member_index = self.members_list.index(member)
         except ValueError:
             logger.error(f"العضو {member.nin} من القائمة المفلترة غير موجود في القائمة الرئيسية.")
-            self._show_toast(f"خطأ: العضو {member.nin} غير موجود بشكل صحيح.", type="error") # تعديل: إشعار للمستخدم
+            self._show_toast(f"خطأ: العضو {self._get_member_display_name_with_index(member, original_member_index)} غير موجود بشكل صحيح.", type="error")
             return
 
         menu = QMenu(self)
+        member_display_name_with_index = self._get_member_display_name_with_index(member, original_member_index)
         
-        view_action = QAction(QIcon.fromTheme("document-properties"), f"عرض معلومات {member.get_full_name_ar() or member.nin}", self)
+        view_action = QAction(QIcon.fromTheme("document-properties"), f"عرض معلومات {member_display_name_with_index}", self)
         view_action.triggered.connect(lambda: self.view_member_info(original_member_index)) 
         menu.addAction(view_action)
 
-        check_now_action = QAction(QIcon.fromTheme("system-search"), f"فحص الآن لـ {member.get_full_name_ar() or member.nin}", self)
+        check_now_action = QAction(QIcon.fromTheme("system-search"), f"فحص الآن لـ {member_display_name_with_index}", self)
         check_now_action.triggered.connect(lambda: self.check_member_now(original_member_index)) 
         menu.addAction(check_now_action)
         
@@ -358,11 +406,11 @@ class AnemApp(QMainWindow):
 
         menu.addSeparator()
         
-        edit_action = QAction(QIcon.fromTheme("document-edit"), f"تعديل بيانات {member.get_full_name_ar() or member.nin}", self)
+        edit_action = QAction(QIcon.fromTheme("document-edit"), f"تعديل بيانات {member_display_name_with_index}", self)
         edit_action.triggered.connect(lambda: self.edit_member_details(self.table.item(row_index_in_table, 0))) 
         menu.addAction(edit_action)
 
-        delete_action = QAction(QIcon.fromTheme("edit-delete"), f"حذف {member.get_full_name_ar() or member.nin}", self)
+        delete_action = QAction(QIcon.fromTheme("edit-delete"), f"حذف {member_display_name_with_index}", self)
         delete_action.triggered.connect(lambda: self.remove_specific_member(original_member_index)) 
         menu.addAction(delete_action)
 
@@ -371,40 +419,42 @@ class AnemApp(QMainWindow):
     def view_member_info(self, original_member_index): 
         if 0 <= original_member_index < len(self.members_list):
             member = self.members_list[original_member_index]
-            logger.info(f"طلب عرض معلومات العضو: {member.nin}")
-            self.update_status_bar_message(f"عرض معلومات العضو: {member.get_full_name_ar() or member.nin}", is_general_message=True) # تعديل: رسالة شريط الحالة
+            member_display_name = self._get_member_display_name_with_index(member, original_member_index)
+            logger.info(f"طلب عرض معلومات العضو: {member_display_name}")
+            self.update_status_bar_message(f"عرض معلومات العضو: {member_display_name}", is_general_message=True) 
             dialog = ViewMemberDialog(member, self) 
             dialog.exec_()
         else:
             logger.warning(f"view_member_info: فهرس خاطئ {original_member_index}")
-            self._show_toast("خطأ في عرض معلومات العضو (فهرس غير صالح).", type="error") # تعديل: إشعار للمستخدم
+            self._show_toast("خطأ في عرض معلومات العضو (فهرس غير صالح).", type="error") 
 
     def check_member_now(self, original_member_index): 
         if 0 <= original_member_index < len(self.members_list):
             member = self.members_list[original_member_index]
+            member_display_name = self._get_member_display_name_with_index(member, original_member_index)
             
             if member.is_processing:
-                 self._show_toast(f"العضو '{member.get_full_name_ar() or member.nin}' قيد المعالجة حاليًا. يرجى الانتظار.", type="warning")
+                 self._show_toast(f"العضو '{member_display_name}' قيد المعالجة حاليًا. يرجى الانتظار.", type="warning")
                  return
 
             if self.single_check_thread and self.single_check_thread.isRunning():
                 self._show_toast("فحص آخر قيد التنفيذ بالفعل. يرجى الانتظار.", type="warning")
                 return
 
-            logger.info(f"طلب فحص فوري للعضو: {member.nin}")
-            self.update_status_bar_message(f"بدء الفحص الفوري للعضو: {member.get_full_name_ar() or member.nin}...", is_general_message=False) # تعديل: رسالة أوضح
-            self._show_toast(f"بدء الفحص الفوري للعضو: {member.get_full_name_ar() or member.nin}", type="info")
+            logger.info(f"طلب فحص فوري للعضو: {member_display_name}")
+            self.update_status_bar_message(f"بدء الفحص الفوري للعضو: {member_display_name}...", is_general_message=False) 
+            self._show_toast(f"بدء الفحص الفوري للعضو: {member_display_name}", type="info")
             
             self.single_check_thread = SingleMemberCheckThread(member, original_member_index, self.api_client, self.settings.copy())
             self.single_check_thread.update_member_gui_signal.connect(self.update_member_gui_in_table)
             self.single_check_thread.new_data_fetched_signal.connect(self.update_member_name_in_table) 
             self.single_check_thread.member_processing_started_signal.connect(lambda idx: self.handle_member_processing_signal(idx, True))
             self.single_check_thread.member_processing_finished_signal.connect(lambda idx: self.handle_member_processing_signal(idx, False))
-            self.single_check_thread.global_log_signal.connect(self.update_status_bar_message) # توصيل إشارة السجل العام
+            self.single_check_thread.global_log_signal.connect(self.update_status_bar_message) 
             self.single_check_thread.start()
         else:
             logger.warning(f"check_member_now: فهرس خاطئ {original_member_index}")
-            self._show_toast("خطأ في بدء الفحص الفوري (فهرس غير صالح).", type="error") # تعديل: إشعار للمستخدم
+            self._show_toast("خطأ في بدء الفحص الفوري (فهرس غير صالح).", type="error") 
 
     def download_all_member_pdfs(self, original_member_index): 
         if not (0 <= original_member_index < len(self.members_list)):
@@ -412,29 +462,30 @@ class AnemApp(QMainWindow):
             return
 
         member = self.members_list[original_member_index]
+        member_display_name = self._get_member_display_name_with_index(member, original_member_index)
 
         if member.is_processing and self.active_download_all_pdfs_threads.get(original_member_index):
-            self._show_toast(f"تحميل شهادات العضو '{member.get_full_name_ar() or member.nin}' قيد التنفيذ بالفعل.", type="warning")
+            self._show_toast(f"تحميل شهادات العضو '{member_display_name}' قيد التنفيذ بالفعل.", type="warning")
             return
         
         if self.active_download_all_pdfs_threads.get(original_member_index) and self.active_download_all_pdfs_threads[original_member_index].isRunning():
-            self._show_toast(f"تحميل شهادات العضو '{member.get_full_name_ar() or member.nin}' قيد التنفيذ بالفعل.", type="warning")
+            self._show_toast(f"تحميل شهادات العضو '{member_display_name}' قيد التنفيذ بالفعل.", type="warning")
             return
 
         if not member.pre_inscription_id:
-            self._show_toast(f"ID التسجيل المسبق مفقود للعضو {member.nin}. لا يمكن تحميل الشهادات.", type="error")
+            self._show_toast(f"ID التسجيل المسبق مفقود للعضو {member_display_name}. لا يمكن تحميل الشهادات.", type="error")
             return
 
-        logger.info(f"طلب تحميل جميع الشهادات للعضو: {member.nin}")
-        self.update_status_bar_message(f"بدء تحميل جميع الشهادات لـ {member.get_full_name_ar() or member.nin}...", is_general_message=False) # تعديل: رسالة أوضح
-        self._show_toast(f"بدء تحميل جميع الشهادات لـ {member.get_full_name_ar() or member.nin}", type="info")
+        logger.info(f"طلب تحميل جميع الشهادات للعضو: {member_display_name}")
+        self.update_status_bar_message(f"بدء تحميل جميع الشهادات لـ {member_display_name}...", is_general_message=False) 
+        self._show_toast(f"بدء تحميل جميع الشهادات لـ {member_display_name}", type="info")
 
         all_pdfs_thread = DownloadAllPdfsThread(member, original_member_index, self.api_client)
         all_pdfs_thread.all_pdfs_download_finished_signal.connect(self.handle_all_pdfs_download_finished)
         all_pdfs_thread.individual_pdf_status_signal.connect(self.handle_individual_pdf_status) 
         all_pdfs_thread.member_processing_started_signal.connect(lambda idx: self.handle_member_processing_signal(idx, True))
         all_pdfs_thread.member_processing_finished_signal.connect(lambda idx, ri=original_member_index: self._clear_active_download_thread(ri))
-        all_pdfs_thread.global_log_signal.connect(self.update_status_bar_message) # توصيل إشارة السجل العام
+        all_pdfs_thread.global_log_signal.connect(self.update_status_bar_message) 
         
         self.active_download_all_pdfs_threads[original_member_index] = all_pdfs_thread
         all_pdfs_thread.start()
@@ -443,9 +494,10 @@ class AnemApp(QMainWindow):
         if original_member_index in self.active_download_all_pdfs_threads:
             del self.active_download_all_pdfs_threads[original_member_index]
         self.handle_member_processing_signal(original_member_index, False)
-        # تعديل: إضافة رسالة عند انتهاء المعالجة إذا لم تكن هناك رسالة أخرى أهم
-        member = self.members_list[original_member_index]
-        self.update_status_bar_message(f"انتهت معالجة تحميل الشهادات للعضو: {member.get_full_name_ar() or member.nin}", is_general_message=True)
+        if 0 <= original_member_index < len(self.members_list):
+            member = self.members_list[original_member_index]
+            member_display_name = self._get_member_display_name_with_index(member, original_member_index)
+            self.update_status_bar_message(f"انتهت معالجة تحميل الشهادات للعضو: {member_display_name}", is_general_message=True)
 
 
     def handle_individual_pdf_status(self, original_member_index, pdf_type, file_path_or_status_msg_from_thread, success, error_msg_for_toast_from_thread):
@@ -454,7 +506,7 @@ class AnemApp(QMainWindow):
         member = self.members_list[original_member_index]
         
         pdf_type_ar = "التعهد" if pdf_type == "HonneurEngagementReport" else "الموعد"
-        member_name_display = member.get_full_name_ar() or member.nin # تعديل: استخدام اسم العرض
+        member_name_display = self._get_member_display_name_with_index(member, original_member_index)
         
         if success:
             file_path = file_path_or_status_msg_from_thread
@@ -465,15 +517,15 @@ class AnemApp(QMainWindow):
             
             activity_detail = f"تم تحميل شهادة {pdf_type_ar} بنجاح إلى {os.path.basename(file_path)}."
             member.set_activity_detail(file_path_or_status_msg_from_thread if os.path.exists(file_path_or_status_msg_from_thread) else activity_detail) 
-            toast_msg = f"للعضو {member_name_display}: {activity_detail}\nالمسار: {file_path}" # تعديل: رسالة إشعار أوضح
-            self._show_toast(toast_msg, type="success", duration=5000) # تعديل: زيادة مدة الإشعار
-            self.update_status_bar_message(f"تم تحميل شهادة {pdf_type_ar} للعضو {member_name_display}.", is_general_message=True) # تعديل: رسالة شريط الحالة
+            toast_msg = f"للعضو {member_name_display}: {activity_detail}\nالمسار: {file_path}" 
+            self._show_toast(toast_msg, type="success", duration=5000) 
+            self.update_status_bar_message(f"تم تحميل شهادة {pdf_type_ar} للعضو {member_name_display}.", is_general_message=True) 
         else:
             activity_detail = file_path_or_status_msg_from_thread 
             member.set_activity_detail(activity_detail, is_error=True)
-            toast_msg = f"للعضو {member_name_display}: فشل تحميل شهادة {pdf_type_ar}. السبب: {error_msg_for_toast_from_thread or activity_detail}" # تعديل: رسالة إشعار أوضح
-            self._show_toast(toast_msg, type="error", duration=6000) # تعديل: زيادة مدة الإشعار
-            self.update_status_bar_message(f"فشل تحميل شهادة {pdf_type_ar} للعضو {member_name_display}.", is_general_message=True) # تعديل: رسالة شريط الحالة
+            toast_msg = f"للعضو {member_name_display}: فشل تحميل شهادة {pdf_type_ar}. السبب: {error_msg_for_toast_from_thread or activity_detail}" 
+            self._show_toast(toast_msg, type="error", duration=6000) 
+            self.update_status_bar_message(f"فشل تحميل شهادة {pdf_type_ar} للعضو {member_name_display}.", is_general_message=True) 
         
         self.update_member_gui_in_table(original_member_index, member.status, member.last_activity_detail, get_icon_name_for_status(member.status))
         self.save_members_data() 
@@ -484,7 +536,7 @@ class AnemApp(QMainWindow):
             return
 
         member = self.members_list[original_member_index]
-        member_name_display = member.get_full_name_ar() or member.nin
+        member_name_display = self._get_member_display_name_with_index(member, original_member_index)
         
         if honneur_path: member.pdf_honneur_path = honneur_path 
         if rdv_path: member.pdf_rdv_path = rdv_path       
@@ -495,12 +547,12 @@ class AnemApp(QMainWindow):
                    (member.pdf_honneur_path and not (member.already_has_rdv or member.rdv_id or member.status == "تم الحجز")):
                     member.status = "مكتمل"
                 elif member.pdf_honneur_path or member.pdf_rdv_path : 
-                     member.status = "تم الحجز" # تعديل: قد تكون هذه الحالة مناسبة إذا تم تحميل ملف واحد فقط
+                     member.status = "تم الحجز" 
             
             member.set_activity_detail(overall_status_msg)
-            final_toast_msg = f"للعضو {member_name_display}: {overall_status_msg}" # تعديل: رسالة إشعار أوضح
+            final_toast_msg = f"للعضو {member_name_display}: {overall_status_msg}" 
             self._show_toast(final_toast_msg, type="success", duration=7000)
-            self.update_status_bar_message(f"اكتمل تحميل شهادات العضو {member_name_display}.", is_general_message=True) # تعديل: رسالة شريط الحالة
+            self.update_status_bar_message(f"اكتمل تحميل شهادات العضو {member_name_display}.", is_general_message=True) 
 
             folder_to_open = None
             if honneur_path: folder_to_open = os.path.dirname(honneur_path)
@@ -509,10 +561,10 @@ class AnemApp(QMainWindow):
             if not folder_to_open and member.pre_inscription_id: 
                 documents_location = QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation)
                 base_app_dir_name = "ملفات_المنحة_البرنامج"
-                member_name_for_folder = member.get_full_name_ar()
-                if not member_name_for_folder or member_name_for_folder.isspace(): 
-                    member_name_for_folder = member.nin 
-                safe_folder_name_part = "".join(c for c in member_name_for_folder if c.isalnum() or c in (' ', '_', '-')).rstrip().replace(" ", "_")
+                member_name_for_folder_path = member.get_full_name_ar()
+                if not member_name_for_folder_path or member_name_for_folder_path.isspace(): 
+                    member_name_for_folder_path = member.nin 
+                safe_folder_name_part = "".join(c for c in member_name_for_folder_path if c.isalnum() or c in (' ', '_', '-')).rstrip().replace(" ", "_")
                 if not safe_folder_name_part: safe_folder_name_part = member.nin 
                 folder_to_open = os.path.join(documents_location, base_app_dir_name, safe_folder_name_part)
 
@@ -533,9 +585,9 @@ class AnemApp(QMainWindow):
             if first_error_msg and first_error_msg not in final_detail_msg: 
                 final_detail_msg += f" (الخطأ الأول: {first_error_msg.split(':')[0]})" 
             member.set_activity_detail(final_detail_msg, is_error=True)
-            final_toast_msg = f"للعضو {member_name_display}: فشل تحميل بعض الشهادات.\n{overall_status_msg}" # تعديل: رسالة إشعار أوضح
+            final_toast_msg = f"للعضو {member_name_display}: فشل تحميل بعض الشهادات.\n{overall_status_msg}" 
             self._show_toast(final_toast_msg, type="error", duration=7000)
-            self.update_status_bar_message(f"فشل تحميل بعض شهادات العضو {member_name_display}.", is_general_message=True) # تعديل: رسالة شريط الحالة
+            self.update_status_bar_message(f"فشل تحميل بعض شهادات العضو {member_name_display}.", is_general_message=True) 
 
         self.update_member_gui_in_table(original_member_index, member.status, member.last_activity_detail, get_icon_name_for_status(member.status))
         self.save_members_data() 
@@ -547,8 +599,9 @@ class AnemApp(QMainWindow):
             return
 
         member_to_remove = self.members_list[original_member_index]
+        member_display_name = self._get_member_display_name_with_index(member_to_remove, original_member_index)
         confirm_delete = QMessageBox.question(self, "تأكيد الحذف",
-                                              f"هل أنت متأكد أنك تريد حذف العضو '{member_to_remove.get_full_name_ar() or member_to_remove.nin}'؟",
+                                              f"هل أنت متأكد أنك تريد حذف العضو '{member_display_name}'؟",
                                               QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if confirm_delete == QMessageBox.No:
             return
@@ -560,9 +613,9 @@ class AnemApp(QMainWindow):
         else:
             self.update_table()
 
-        logger.info(f"تم حذف العضو: {removed_member_info.nin} من القائمة.")
-        self.update_status_bar_message(f"تم حذف العضو: {removed_member_info.get_full_name_ar() or removed_member_info.nin}", is_general_message=True) # تعديل: استخدام الاسم الكامل
-        self._show_toast(f"تم حذف العضو: {removed_member_info.get_full_name_ar() or removed_member_info.nin}", type="info") # تعديل: استخدام الاسم الكامل
+        logger.info(f"تم حذف العضو: {member_display_name}")
+        self.update_status_bar_message(f"تم حذف العضو: {member_display_name}", is_general_message=True) 
+        self._show_toast(f"تم حذف العضو: {member_display_name}", type="info") 
         self.save_members_data() 
         
         if self.monitoring_thread and self.monitoring_thread.current_member_index_to_process >= len(self.members_list):
@@ -584,11 +637,11 @@ class AnemApp(QMainWindow):
         except json.JSONDecodeError:
             logger.error(f"خطأ في قراءة ملف الإعدادات {SETTINGS_FILE}. تم استخدام الإعدادات الافتراضية.")
             self.settings = DEFAULT_SETTINGS.copy()
-            self._show_toast(f"خطأ في ملف الإعدادات {SETTINGS_FILE}. تم استعادة الإعدادات الافتراضية.", type="error") # تعديل: إشعار للمستخدم
+            self._show_toast(f"خطأ في ملف الإعدادات {SETTINGS_FILE}. تم استعادة الإعدادات الافتراضية.", type="error") 
         except Exception as e:
             logger.exception(f"خطأ غير متوقع عند تحميل الإعدادات: {e}. تم استخدام الإعدادات الافتراضية.")
             self.settings = DEFAULT_SETTINGS.copy()
-            self._show_toast(f"خطأ عند تحميل الإعدادات. تم استعادة الإعدادات الافتراضية.", type="error") # تعديل: إشعار للمستخدم
+            self._show_toast(f"خطأ عند تحميل الإعدادات. تم استعادة الإعدادات الافتراضية.", type="error") 
 
     def save_app_settings(self):
         try:
@@ -606,7 +659,7 @@ class AnemApp(QMainWindow):
             self.settings.update(new_settings)
             self.save_app_settings()
             self.apply_app_settings()
-            self._show_toast("تم حفظ الإعدادات بنجاح وتطبيقها.", type="success") # تعديل: رسالة أوضح
+            self._show_toast("تم حفظ الإعدادات بنجاح وتطبيقها.", type="success") 
             logger.info("تم تحديث إعدادات التطبيق.")
             self.update_status_bar_message("تم تحديث الإعدادات.", is_general_message=True)
 
@@ -630,13 +683,31 @@ class AnemApp(QMainWindow):
         logger.info(f"MonitoringThread settings applied from main app: Interval={self.settings.get(SETTING_MONITORING_INTERVAL)}min, MemberDelay=[{self.settings.get(SETTING_MIN_MEMBER_DELAY)}-{self.settings.get(SETTING_MAX_MEMBER_DELAY)}]s")
         logger.info("تم تطبيق الإعدادات الجديدة على مكونات التطبيق.")
 
-    def _show_toast(self, message, type="info", duration=4000):
-        # تعديل: التأكد من أن الرسائل الطويلة جدًا يتم اقتطاعها بشكل معقول للإشعار
+    def _get_member_display_name_with_index(self, member, original_index):
+        name_part = member.get_full_name_ar()
+        if not name_part or name_part.isspace():
+            name_part = member.nin 
+        return f"{name_part} (رقم {original_index + 1})"
+
+    def _show_toast(self, message, type="info", duration=4000, member_obj=None, original_idx_if_member=None):
         max_toast_len = 150 
         display_message = message
-        if len(message) > max_toast_len:
+        
+        if member_obj is not None and original_idx_if_member is not None:
+            member_display_intro = self._get_member_display_name_with_index(member_obj, original_idx_if_member)
+            full_message_with_member = f"{member_display_intro}: {message}"
+            if len(full_message_with_member) > max_toast_len:
+                remaining_len = max_toast_len - len(member_display_intro) - 5 
+                if remaining_len > 10 : 
+                     display_message = f"{member_display_intro}: {message[:remaining_len]}..."
+                else: 
+                     display_message = f"{member_display_intro}..."
+                logger.debug(f"Toast message (with member) truncated. Original: {message}")
+            else:
+                display_message = full_message_with_member
+        elif len(message) > max_toast_len:
             display_message = message[:max_toast_len] + "..."
-            logger.debug(f"Toast message truncated. Original: {message}")
+            logger.debug(f"Toast message (general) truncated. Original: {message}")
 
         toast = ToastNotification(self)
         self.toast_notifications.append(toast)
@@ -655,15 +726,15 @@ class AnemApp(QMainWindow):
                 logger.info(f"تم تحميل ملف التنسيق بنجاح: {STYLESHEET_FILE}")
         except FileNotFoundError:
             logger.warning(f"ملف التنسيق {STYLESHEET_FILE} غير موجود. سيتم استخدام التنسيق الافتراضي.")
-            self._show_toast(f"ملف التنسيق {STYLESHEET_FILE} غير موجود.", type="warning") # تعديل: إشعار للمستخدم
+            self._show_toast(f"ملف التنسيق {STYLESHEET_FILE} غير موجود.", type="warning") 
         except Exception as e:
             logger.error(f"خطأ في تحميل ملف التنسيق {STYLESHEET_FILE}: {e}")
-            self._show_toast(f"خطأ في تحميل ملف التنسيق: {e}", type="error") # تعديل: إشعار للمستخدم
+            self._show_toast(f"خطأ في تحميل ملف التنسيق: {e}", type="error") 
             
     def update_datetime(self):
         now = QDateTime.currentDateTime()
         arabic_locale = QLocale(QLocale.Arabic, QLocale.Algeria) 
-        self.datetime_label.setText(arabic_locale.toString(now, "dddd, dd MMMM yyyy - hh:mm:ss AP")) # تعديل: إضافة السنة
+        self.datetime_label.setText(arabic_locale.toString(now, "dddd, dd MMMM yyyy - hh:mm:ss AP")) # Corrected date format
 
     def toggle_column_visibility(self, checked):
         logger.info(f"تبديل إظهار التفاصيل: {'إظهار' if checked else 'إخفاء'}")
@@ -672,7 +743,7 @@ class AnemApp(QMainWindow):
         self.table.setColumnHidden(self.COL_CCP, not checked)
         self.table.setColumnHidden(self.COL_PHONE_NUMBER, not checked) 
         self.toggle_details_button.setText("إخفاء التفاصيل" if checked else "إظهار التفاصيل")
-        self.update_status_bar_message(f"تم {'إظهار' if checked else 'إخفاء'} الأعمدة التفصيلية.", is_general_message=True) # تعديل: رسالة شريط الحالة
+        self.update_status_bar_message(f"تم {'إظهار' if checked else 'إخفاء'} الأعمدة التفصيلية.", is_general_message=True) 
 
     def update_active_row_spinner_display(self):
         if self.active_spinner_row_in_view == -1 or not (0 <= self.active_spinner_row_in_view < self.table.rowCount()):
@@ -737,19 +808,20 @@ class AnemApp(QMainWindow):
             logger.warning(f"HMP Signal: فهرس الجدول المحسوب {row_in_table_to_update} خارج الحدود لـ {self.table.rowCount()} صفوف.")
             return
 
+        member_display_name = self._get_member_display_name_with_index(member, original_member_index)
         if is_processing_now:
-            logger.debug(f"HMP Signal: Processing STARTED for member {member.nin} at table row {row_in_table_to_update}")
+            logger.debug(f"HMP Signal: Processing STARTED for member {member_display_name} at table row {row_in_table_to_update}")
             self.active_spinner_row_in_view = row_in_table_to_update 
             self.spinner_char_idx = 0 
             
             self.table.selectRow(row_in_table_to_update)
-            logger.debug(f"HMP Signal: Row {row_in_table_to_update} selected for {member.nin}")
+            logger.debug(f"HMP Signal: Row {row_in_table_to_update} selected for {member_display_name}")
             first_column_item = self.table.item(row_in_table_to_update, 0)
             if first_column_item:
                 self.table.scrollToItem(first_column_item, QAbstractItemView.EnsureVisible)
-                logger.debug(f"HMP Signal: Scrolled to row {row_in_table_to_update} for {member.nin}")
+                logger.debug(f"HMP Signal: Scrolled to row {row_in_table_to_update} for {member_display_name}")
             else:
-                logger.warning(f"HMP Signal: No item at ({row_in_table_to_update}, 0) to scroll to for {member.nin}.")
+                logger.warning(f"HMP Signal: No item at ({row_in_table_to_update}, 0) to scroll to for {member_display_name}.")
 
             icon_item = self.table.item(row_in_table_to_update, self.COL_ICON)
             if icon_item:
@@ -763,11 +835,10 @@ class AnemApp(QMainWindow):
                 self.row_spinner_timer.start(self.row_spinner_timer_interval)
                 logger.debug(f"HMP Signal: Spinner timer started for row {row_in_table_to_update}")
             
-            # تعديل: إضافة رسالة شريط الحالة عند بدء المعالجة
-            self.update_status_bar_message(f"جاري معالجة العضو: {member.get_full_name_ar() or member.nin}...", is_general_message=False)
+            self.update_status_bar_message(f"جاري معالجة العضو: {member_display_name}...", is_general_message=False)
 
         else: 
-            logger.debug(f"HMP Signal: Processing FINISHED for member {member.nin} at table row {row_in_table_to_update}")
+            logger.debug(f"HMP Signal: Processing FINISHED for member {member_display_name} at table row {row_in_table_to_update}")
             is_still_pdf_downloading = self.active_download_all_pdfs_threads.get(original_member_index) and \
                                        self.active_download_all_pdfs_threads[original_member_index].isRunning()
             is_still_single_checking = self.single_check_thread and \
@@ -784,9 +855,6 @@ class AnemApp(QMainWindow):
                         icon_item.setText("") 
             
             self.highlight_processing_row(row_in_table_to_update, force_processing_display=False)
-            # تعديل: تحديث شريط الحالة عند انتهاء المعالجة (إذا لم يتم تحديثه برسالة أخرى أكثر تحديدًا)
-            # سيتم تحديثه بشكل أفضل من خلال إشارات global_log_signal من الخيوط أو عند انتهاء العمليات.
-            # self.update_status_bar_message(f"انتهت معالجة العضو: {member.get_full_name_ar() or member.nin}", is_general_message=True)
 
 
     def highlight_processing_row(self, row_index_in_table, force_processing_display=None):
@@ -865,8 +933,8 @@ class AnemApp(QMainWindow):
                 return
             for idx, m in enumerate(self.members_list):
                 if m.nin == data["nin"] or m.wassit_no == data["wassit_no"]:
-                    member_name_display = f"{m.get_full_name_ar()}".strip() if m.get_full_name_ar() else "غير معروف"
-                    msg = f"العضو '{member_name_display}' (رقم {idx + 1} في القائمة) موجود بالفعل ببيانات مشابهة." # تعديل: رسالة أوضح
+                    member_name_display = self._get_member_display_name_with_index(m, idx)
+                    msg = f"العضو '{member_name_display}' موجود بالفعل ببيانات مشابهة." 
                     self._show_toast(msg, type="warning")
                     logger.warning(f"محاولة إضافة عضو مكرر: {data['nin']}/{data['wassit_no']} - {msg}")
                     return
@@ -879,17 +947,16 @@ class AnemApp(QMainWindow):
                 self.update_table() 
 
             current_original_index = self.members_list.index(member) 
-            logger.info(f"تمت إضافة العضو: NIN={data['nin']}, Wassit={data['wassit_no']}, Phone={data['phone_number']}")
-            self.update_status_bar_message(f"تمت إضافة العضو: {data['nin']}. جاري جلب المعلومات الأولية...", is_general_message=False) # تعديل: رسالة أوضح
-            self._show_toast(f"تمت إضافة العضو: {data['nin']}. جاري جلب المعلومات الأولية...", type="info") # تعديل: رسالة أوضح
+            member_display_name_add = self._get_member_display_name_with_index(member, current_original_index)
+            logger.info(f"تمت إضافة العضو: {member_display_name_add}, Phone={data['phone_number']}")
+            self.update_status_bar_message(f"تمت إضافة العضو: {member_display_name_add}. جاري جلب المعلومات الأولية...", is_general_message=False) 
+            self._show_toast(f"تمت إضافة العضو: {member_display_name_add}. جاري جلب المعلومات الأولية...", type="info") 
             
             fetch_thread = FetchInitialInfoThread(member, current_original_index, self.api_client, self.settings.copy())
             fetch_thread.update_member_gui_signal.connect(self.update_member_gui_in_table)
             fetch_thread.new_data_fetched_signal.connect(self.update_member_name_in_table)
             fetch_thread.member_processing_started_signal.connect(lambda idx: self.handle_member_processing_signal(idx, True))
             fetch_thread.member_processing_finished_signal.connect(lambda idx: self.handle_member_processing_signal(idx, False))
-            # تعديل: توصيل إشارة السجل العام من خيط الجلب الأولي أيضًا إذا أردنا ذلك
-            # fetch_thread.global_log_signal.connect(self.update_status_bar_message)
             self.initial_fetch_threads.append(fetch_thread)
             fetch_thread.start()
 
@@ -910,12 +977,14 @@ class AnemApp(QMainWindow):
             original_member_index = self.members_list.index(member_to_edit_from_display)
             member_to_edit = self.members_list[original_member_index] 
         except ValueError:
-            logger.error(f"فشل العثور على العضو {member_to_edit_from_display.nin} في القائمة الرئيسية عند التعديل.")
-            self._show_toast(f"خطأ: فشل العثور على العضو {member_to_edit_from_display.nin} للتعديل.", type="error") # تعديل: إشعار للمستخدم
+            member_display_name_err = self._get_member_display_name_with_index(member_to_edit_from_display, -1) 
+            logger.error(f"فشل العثور على العضو {member_display_name_err} في القائمة الرئيسية عند التعديل.")
+            self._show_toast(f"خطأ: فشل العثور على العضو {member_display_name_err} للتعديل.", type="error") 
             return
-
-        logger.info(f"فتح نافذة تعديل للعضو: {member_to_edit.nin}")
-        dialog = EditMemberDialog(member_to_edit, self)
+        
+        member_display_name_edit_title = self._get_member_display_name_with_index(member_to_edit, original_member_index)
+        logger.info(f"فتح نافذة تعديل للعضو: {member_display_name_edit_title}")
+        dialog = EditMemberDialog(member_to_edit, self) 
         if dialog.exec_() == EditMemberDialog.Accepted:
             new_data = dialog.get_data()
             if not (new_data["nin"] and new_data["wassit_no"] and new_data["ccp"]):
@@ -936,19 +1005,21 @@ class AnemApp(QMainWindow):
                     if idx == original_member_index: 
                         continue
                     if m.nin == new_data["nin"] or m.wassit_no == new_data["wassit_no"]:
-                        member_name_display = f"{m.get_full_name_ar()}".strip() if m.get_full_name_ar() else "غير معروف"
-                        self._show_toast(f"البيانات الجديدة (NIN أو رقم الوسيط) تتعارض مع العضو '{member_name_display}'. لم يتم الحفظ.", type="error") # تعديل: رسالة أوضح
-                        logger.warning(f"فشل تعديل العضو {member_to_edit.nin} بسبب تكرار مع {m.nin}/{m.wassit_no}")
+                        conflicting_member_display = self._get_member_display_name_with_index(m, idx)
+                        self._show_toast(f"البيانات الجديدة (NIN أو رقم الوسيط) تتعارض مع العضو '{conflicting_member_display}'. لم يتم الحفظ.", type="error") 
+                        logger.warning(f"فشل تعديل العضو {member_display_name_edit_title} بسبب تكرار مع {conflicting_member_display}")
                         return
                 
-            logger.info(f"حفظ التعديلات للعضو: {member_to_edit.nin} -> {new_data['nin']}, Phone: {new_data['phone_number']}")
+            logger.info(f"حفظ التعديلات للعضو: {member_display_name_edit_title} -> NIN={new_data['nin']}, Phone: {new_data['phone_number']}")
             member_to_edit.nin = new_data["nin"]
             member_to_edit.wassit_no = new_data["wassit_no"]
             member_to_edit.ccp = new_data["ccp"]
             member_to_edit.phone_number = new_data["phone_number"] 
 
+            member_display_after_edit = self._get_member_display_name_with_index(member_to_edit, original_member_index) 
+
             if nin_changed or wassit_changed:
-                logger.info(f"تم تغيير المعرفات الرئيسية للعضو {new_data['nin']}. إعادة تعيين الحالة وجلب المعلومات.")
+                logger.info(f"تم تغيير المعرفات الرئيسية للعضو {member_display_after_edit}. إعادة تعيين الحالة وجلب المعلومات.")
                 member_to_edit.status = "جديد" 
                 member_to_edit.set_activity_detail("تم تعديل المعرفات، يتطلب إعادة التحقق.")
                 member_to_edit.nom_fr = ""
@@ -960,6 +1031,7 @@ class AnemApp(QMainWindow):
                 member_to_edit.structure_id = None
                 member_to_edit.rdv_date = None
                 member_to_edit.rdv_id = None
+                member_to_edit.rdv_source = None 
                 member_to_edit.pdf_honneur_path = None
                 member_to_edit.pdf_rdv_path = None
                 member_to_edit.has_actual_pre_inscription = False
@@ -972,8 +1044,8 @@ class AnemApp(QMainWindow):
                 if self.is_filter_active: self.apply_filter_and_search()
                 else: self.update_table_row(original_member_index, member_to_edit) 
                 
-                self.update_status_bar_message(f"تم تعديل بيانات العضو {member_to_edit.nin}. جاري إعادة جلب المعلومات...", is_general_message=False) # تعديل: رسالة شريط الحالة
-                self._show_toast(f"تم تعديل بيانات العضو {member_to_edit.nin}. جاري إعادة جلب المعلومات...", type="info") # تعديل: إشعار للمستخدم
+                self.update_status_bar_message(f"تم تعديل بيانات العضو {member_display_after_edit}. جاري إعادة جلب المعلومات...", is_general_message=False) 
+                self._show_toast(f"تم تعديل بيانات العضو {member_display_after_edit}. جاري إعادة جلب المعلومات...", type="info") 
                 
                 fetch_thread = FetchInitialInfoThread(member_to_edit, original_member_index, self.api_client, self.settings.copy())
                 fetch_thread.update_member_gui_signal.connect(self.update_member_gui_in_table)
@@ -985,8 +1057,8 @@ class AnemApp(QMainWindow):
             else:
                 if self.is_filter_active: self.apply_filter_and_search()
                 else: self.update_table_row(original_member_index, member_to_edit) 
-                self.update_status_bar_message(f"تم تعديل بيانات العضو: {member_to_edit.get_full_name_ar() or member_to_edit.nin}", is_general_message=True) # تعديل: استخدام الاسم الكامل
-                self._show_toast(f"تم تعديل بيانات العضو: {member_to_edit.get_full_name_ar() or member_to_edit.nin}", type="success") # تعديل: استخدام الاسم الكامل
+                self.update_status_bar_message(f"تم تعديل بيانات العضو: {member_display_after_edit}", is_general_message=True) 
+                self._show_toast(f"تم تعديل بيانات العضو: {member_display_after_edit}", type="success") 
             
             self.save_members_data()
 
@@ -994,7 +1066,7 @@ class AnemApp(QMainWindow):
     def remove_member(self): 
         selected_rows_in_table = self.table.selectionModel().selectedRows()
         if not selected_rows_in_table:
-            self._show_toast("يرجى تحديد عضو واحد على الأقل لحذفه.", type="warning") # تعديل: رسالة أوضح
+            self._show_toast("يرجى تحديد عضو واحد على الأقل لحذفه.", type="warning") 
             return
         
         confirm_msg = f"هل أنت متأكد أنك تريد حذف {len(selected_rows_in_table)} عضو/أعضاء محددين؟"
@@ -1002,8 +1074,14 @@ class AnemApp(QMainWindow):
             row_in_table = selected_rows_in_table[0].row()
             current_list_for_display = self.filtered_members_list if self.is_filter_active else self.members_list
             if 0 <= row_in_table < len(current_list_for_display):
-                member_to_remove_display = current_list_for_display[row_in_table]
-                confirm_msg = f"هل أنت متأكد أنك تريد حذف العضو '{member_to_remove_display.get_full_name_ar() or member_to_remove_display.nin}'؟"
+                member_to_remove_display_obj = current_list_for_display[row_in_table]
+                original_idx_for_display_remove = -1
+                try:
+                    original_idx_for_display_remove = self.members_list.index(member_to_remove_display_obj)
+                except ValueError:
+                    pass 
+                member_to_remove_display_name = self._get_member_display_name_with_index(member_to_remove_display_obj, original_idx_for_display_remove)
+                confirm_msg = f"هل أنت متأكد أنك تريد حذف العضو '{member_to_remove_display_name}'؟"
 
         confirm_delete = QMessageBox.question(self, "تأكيد الحذف", confirm_msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if confirm_delete == QMessageBox.No:
@@ -1016,11 +1094,13 @@ class AnemApp(QMainWindow):
             if 0 <= row_in_table < len(current_list_for_display):
                 members_to_delete_from_display.append(current_list_for_display[row_in_table])
 
-        deleted_count = 0 # تعديل: عداد للأعضاء المحذوفين
+        deleted_count = 0 
         for member_to_delete in members_to_delete_from_display:
             if member_to_delete in self.members_list:
+                original_idx_before_delete = self.members_list.index(member_to_delete) 
+                deleted_member_display_name = self._get_member_display_name_with_index(member_to_delete, original_idx_before_delete)
                 self.members_list.remove(member_to_delete)
-                logger.info(f"تم حذف العضو: {member_to_delete.nin}")
+                logger.info(f"تم حذف العضو: {deleted_member_display_name}")
                 deleted_count +=1
             else:
                 logger.warning(f"محاولة حذف عضو {member_to_delete.nin} غير موجود في القائمة الرئيسية.")
@@ -1030,7 +1110,7 @@ class AnemApp(QMainWindow):
         else:
             self.update_table()
         
-        if deleted_count > 0: # تعديل: إظهار رسالة فقط إذا تم حذف أعضاء
+        if deleted_count > 0: 
             self.update_status_bar_message(f"تم حذف {deleted_count} عضو/أعضاء.", is_general_message=True)
             self._show_toast(f"تم حذف {deleted_count} عضو/أعضاء بنجاح.", type="info")
         
@@ -1083,7 +1163,13 @@ class AnemApp(QMainWindow):
         item_status.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.table.setItem(row_in_table, self.COL_STATUS, item_status) 
 
-        item_rdv = QTableWidgetItem(member.rdv_date if member.rdv_date else "")
+        rdv_date_display_text = member.rdv_date if member.rdv_date else ""
+        if member.rdv_date:
+            if member.rdv_source == "system":
+                rdv_date_display_text += " (نظام)"
+            elif member.rdv_source == "discovered":
+                rdv_date_display_text += " (مكتشف)"
+        item_rdv = QTableWidgetItem(rdv_date_display_text)
         item_rdv.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
         self.table.setItem(row_in_table, self.COL_RDV_DATE, item_rdv)
         
@@ -1118,7 +1204,7 @@ class AnemApp(QMainWindow):
         try:
             row_in_table_to_update = current_list_displayed.index(member)
         except ValueError:
-            logger.debug(f"العضو {member.nin} ليس في القائمة المعروضة حاليًا، لا يتم تحديث واجهة المستخدم للجدول مباشرة.")
+            logger.debug(f"العضو {self._get_member_display_name_with_index(member, original_member_index)} ليس في القائمة المعروضة حاليًا، لا يتم تحديث واجهة المستخدم للجدول مباشرة.")
             return
 
         if not (0 <= row_in_table_to_update < self.table.rowCount()):
@@ -1132,7 +1218,15 @@ class AnemApp(QMainWindow):
         if len(member.ccp) == 12: ccp_display = f"{member.ccp[:10]} {member.ccp[10:]}"
         self.table.item(row_in_table_to_update, self.COL_CCP).setText(ccp_display)
         self.table.item(row_in_table_to_update, self.COL_PHONE_NUMBER).setText(member.phone_number or "") 
-        self.table.item(row_in_table_to_update, self.COL_RDV_DATE).setText(member.rdv_date if member.rdv_date else "")
+        
+        rdv_date_display_text = member.rdv_date if member.rdv_date else ""
+        if member.rdv_date:
+            if member.rdv_source == "system":
+                rdv_date_display_text += " (نظام)"
+            elif member.rdv_source == "discovered":
+                rdv_date_display_text += " (مكتشف)"
+        self.table.item(row_in_table_to_update, self.COL_RDV_DATE).setText(rdv_date_display_text)
+
 
         detail_to_show_gui = member.last_activity_detail 
         self.table.item(row_in_table_to_update, self.COL_DETAILS).setText(detail_to_show_gui)
@@ -1154,33 +1248,26 @@ class AnemApp(QMainWindow):
 
         msg_attr_prefix = f"_toast_shown_{original_member_index}_" 
         if not self.suppress_initial_messages: 
-            toast_message_title = f"العضو {member.get_full_name_ar()}".strip() if member.get_full_name_ar() else f"العضو {member.nin}"
+            member_display_for_toast = self._get_member_display_name_with_index(member, original_member_index)
             current_status_for_toast = status_text 
             
-            # تعديل: تبسيط منطق الإشعارات هنا، الاعتماد أكثر على الإشعارات عند بدء وانتهاء العمليات الكلية
-            # بدلاً من محاولة إظهار إشعار لكل تغيير حالة دقيق.
-            # سيتم التعامل مع الإشعارات الهامة (مثل خطأ فادح، نجاح حجز) بشكل أكثر تحديدًا في الدوال التي تستدعيها الخيوط.
-
-            # مثال على إشعار عند حدوث خطأ واضح
             if "فشل" in current_status_for_toast or "خطأ" in current_status_for_toast or "غير مؤهل" in current_status_for_toast:
-                error_attr = msg_attr_prefix + current_status_for_toast.replace(" ", "_") # إنشاء معرف فريد للإشعار
+                error_attr = msg_attr_prefix + current_status_for_toast.replace(" ", "_") 
                 if not hasattr(self, error_attr) or not getattr(self, error_attr):
-                    # استخدام full_last_activity_detail لتقديم تفاصيل أكثر في الإشعار إذا كان خطأ
-                    self._show_toast(f"{toast_message_title}:\n{member.full_last_activity_detail}", type="error", duration=5000)
+                    self._show_toast(f"{member.full_last_activity_detail}", type="error", duration=5000, member_obj=member, original_idx_if_member=original_member_index)
                     setattr(self, error_attr, True)
-                    # إعادة تعيين الأعلام الأخرى لمنع الإشعارات المتضاربة
                     for attr_suffix in ["input_error", "has_rdv", "booking_ineligible", "completed_or_benefiting", "success_generic"]:
                         if hasattr(self, msg_attr_prefix + attr_suffix):
                             delattr(self, msg_attr_prefix + attr_suffix)
             elif current_status_for_toast == "مكتمل" or current_status_for_toast == "مستفيد حاليًا من المنحة" or current_status_for_toast == "تم الحجز":
                 success_attr = msg_attr_prefix + "success_generic"
                 if not hasattr(self, success_attr) or not getattr(self, success_attr):
-                    self._show_toast(f"{toast_message_title}:\n{detail_text}", type="success", duration=5000)
+                    self._show_toast(f"{detail_text}", type="success", duration=5000, member_obj=member, original_idx_if_member=original_member_index)
                     setattr(self, success_attr, True)
                     for attr_suffix in ["input_error", "has_rdv", "booking_ineligible", "error_generic"]:
                          if hasattr(self, msg_attr_prefix + attr_suffix):
                             delattr(self, msg_attr_prefix + attr_suffix)
-            else: # مسح أعلام الإشعارات السابقة إذا لم تكن الحالة خطأ أو نجاحًا واضحًا
+            else: 
                 for attr_suffix in ["input_error", "has_rdv", "booking_ineligible", "completed_or_benefiting", "success_generic", "error_generic"] + [current_status_for_toast.replace(" ", "_")]:
                     if hasattr(self, msg_attr_prefix + attr_suffix):
                         delattr(self, msg_attr_prefix + attr_suffix)
@@ -1190,7 +1277,8 @@ class AnemApp(QMainWindow):
             member = self.members_list[original_member_index]
             member.nom_ar = nom_ar
             member.prenom_ar = prenom_ar
-            logger.info(f"تحديث اسم ولقب العضو (عربي) {member.nin}: {member.get_full_name_ar()}")
+            member_display_name = self._get_member_display_name_with_index(member, original_member_index)
+            logger.info(f"تحديث اسم ولقب العضو (عربي) {member_display_name}")
             
             row_in_table_to_update = -1
             current_list_displayed = self.filtered_members_list if self.is_filter_active else self.members_list
@@ -1200,26 +1288,35 @@ class AnemApp(QMainWindow):
                     full_name_item = self.table.item(row_in_table_to_update, self.COL_FULL_NAME_AR)
                     if full_name_item: 
                         full_name_item.setText(member.get_full_name_ar())
-                    # تعديل: إضافة رسالة إشعار عند تحديث الاسم بنجاح
                     if not self.suppress_initial_messages:
-                        self._show_toast(f"تم تحديث اسم العضو: {member.get_full_name_ar()}", type="info")
+                        self._show_toast(f"تم تحديث اسم العضو.", type="info", member_obj=member, original_idx_if_member=original_member_index)
             except ValueError:
-                logger.debug(f"العضو {member.nin} ليس في القائمة المعروضة حاليًا، لا يتم تحديث الاسم في الجدول مباشرة.")
+                logger.debug(f"العضو {member_display_name} ليس في القائمة المعروضة حاليًا، لا يتم تحديث الاسم في الجدول مباشرة.")
 
             self.save_members_data() 
 
-    def update_status_bar_message(self, message, is_general_message=True): # تعديل: إضافة معامل لتحديد نوع الرسالة
-        logger.info(f"رسالة شريط الحالة: {message}")
-        self.status_bar_label.setText(message)
+    def update_status_bar_message(self, message, is_general_message=True, member_obj=None, original_idx_if_member=None):
+        final_message = message
+        if member_obj and original_idx_if_member is not None and original_idx_if_member >= 0: 
+            member_display = self._get_member_display_name_with_index(member_obj, original_idx_if_member)
+            final_message = f"{member_display}: {message}"
+        
+        logger.info(f"رسالة شريط الحالة: {final_message}")
+        self.status_bar_label.setText(final_message)
+        
         if not is_general_message or "انتهاء دورة الفحص" in message or "بدء دورة فحص جديدة" in message or "استئناف المراقبة" in message or "الموقع لا يزال غير متاح" in message or "اكتمل الفحص الأولي" in message:
             self.last_scan_label.setText(f"آخر تحديث: {time.strftime('%H:%M:%S')}")
-        elif is_general_message: # مسح وقت آخر تحديث للرسائل العامة
+        elif is_general_message: 
             self.last_scan_label.setText("")
+            self.countdown_label.setText("") 
+
+    def update_countdown_timer_display(self, time_remaining_str):
+        self.countdown_label.setText(time_remaining_str)
 
 
     def start_monitoring(self):
         if not self.members_list:
-            self._show_toast("يرجى إضافة أعضاء أولاً لبدء المراقبة.", type="warning") # تعديل: رسالة أوضح
+            self._show_toast("يرجى إضافة أعضاء أولاً لبدء المراقبة.", type="warning") 
             return
         if not self.monitoring_thread.isRunning():
             logger.info("بدء المراقبة...")
@@ -1235,11 +1332,11 @@ class AnemApp(QMainWindow):
             self.add_member_button.setEnabled(False) 
             self.remove_member_button.setEnabled(False)
             monitoring_interval_minutes = self.settings.get(SETTING_MONITORING_INTERVAL, DEFAULT_SETTINGS[SETTING_MONITORING_INTERVAL])
-            self.update_status_bar_message(f"بدأت المراقبة (الدورة كل {monitoring_interval_minutes} دقيقة)...", is_general_message=False) # تعديل: رسالة أوضح
+            self.update_status_bar_message(f"بدأت المراقبة (الدورة كل {monitoring_interval_minutes} دقيقة)...", is_general_message=False) 
             self._show_toast(f"بدأت المراقبة (الدورة كل {monitoring_interval_minutes} دقيقة).", type="info")
         else:
             logger.info("المراقبة جارية بالفعل.")
-            self._show_toast("المراقبة جارية بالفعل.", type="info") # تعديل: إشعار للمستخدم
+            self._show_toast("المراقبة جارية بالفعل.", type="info") 
             self.update_status_bar_message("المراقبة جارية بالفعل.", is_general_message=True)
 
     def stop_monitoring(self):
@@ -1268,15 +1365,16 @@ class AnemApp(QMainWindow):
             self.stop_button.setEnabled(False)
             self.add_member_button.setEnabled(True)
             self.remove_member_button.setEnabled(True)
-            self.update_status_bar_message("تم إيقاف المراقبة بنجاح.", is_general_message=True) # تعديل: رسالة أوضح
+            self.update_status_bar_message("تم إيقاف المراقبة بنجاح.", is_general_message=True) 
             self._show_toast("تم إيقاف المراقبة.", type="info")
+            self.countdown_label.setText("") 
             for i in range(len(self.members_list)):
                 if self.members_list[i].is_processing: 
                     self.members_list[i].is_processing = False
                     self.update_member_gui_in_table(i, self.members_list[i].status, self.members_list[i].last_activity_detail, get_icon_name_for_status(self.members_list[i].status))
         else:
             logger.info("المراقبة ليست جارية.")
-            self._show_toast("المراقبة ليست جارية حاليًا.", type="info") # تعديل: إشعار للمستخدم
+            self._show_toast("المراقبة ليست جارية حاليًا.", type="info") 
             self.update_status_bar_message("المراقبة ليست جارية.", is_general_message=True)
 
     def load_members_data(self):
@@ -1297,23 +1395,23 @@ class AnemApp(QMainWindow):
                 self.filtered_members_list = []
                 self.update_table() 
                 logger.info(f"ملف البيانات {DATA_FILE} غير موجود، سيبدأ البرنامج بقائمة فارغة.")
-                self.update_status_bar_message(f"ملف البيانات {DATA_FILE} غير موجود. يمكنك إضافة أعضاء جدد.", is_general_message=True) # تعديل: رسالة أوضح
+                self.update_status_bar_message(f"ملف البيانات {DATA_FILE} غير موجود. يمكنك إضافة أعضاء جدد.", is_general_message=True) 
         except json.JSONDecodeError:
             logger.error(f"خطأ في قراءة ملف البيانات {DATA_FILE}. قد يكون الملف تالفًا.")
-            self.update_status_bar_message(f"خطأ في قراءة ملف البيانات {DATA_FILE}. يرجى التحقق من الملف.", is_general_message=True) # تعديل: رسالة أوضح
-            self._show_toast(f"خطأ في ملف البيانات {DATA_FILE}. قد يكون الملف تالفًا. تم بدء البرنامج بقائمة فارغة.", type="error", duration=6000) # تعديل: إشعار للمستخدم
+            self.update_status_bar_message(f"خطأ في قراءة ملف البيانات {DATA_FILE}. يرجى التحقق من الملف.", is_general_message=True) 
+            self._show_toast(f"خطأ في ملف البيانات {DATA_FILE}. قد يكون الملف تالفًا. تم بدء البرنامج بقائمة فارغة.", type="error", duration=6000) 
             self.members_list = []
             self.filtered_members_list = []
             self.update_table()
         except Exception as e:
             logger.exception(f"خطأ غير متوقع عند تحميل البيانات: {e}")
             self.update_status_bar_message(f"خطأ غير متوقع عند تحميل البيانات: {e}", is_general_message=True)
-            self._show_toast(f"خطأ غير متوقع عند تحميل البيانات: {e}", type="error", duration=6000) # تعديل: إشعار للمستخدم
+            self._show_toast(f"خطأ غير متوقع عند تحميل البيانات: {e}", type="error", duration=6000) 
             self.members_list = []
             self.filtered_members_list = []
             self.update_table()
         finally:
-            QTimer.singleShot(200, lambda: setattr(self, 'suppress_initial_messages', False)) # تعديل: زيادة طفيفة في المهلة
+            QTimer.singleShot(200, lambda: setattr(self, 'suppress_initial_messages', False)) 
 
     def save_members_data(self):
         try:
@@ -1328,14 +1426,14 @@ class AnemApp(QMainWindow):
         except Exception as e:
             logger.exception(f"خطأ عند حفظ البيانات: {e}")
             self.update_status_bar_message(f"خطأ عند حفظ البيانات: {e}", is_general_message=True)
-            self._show_toast(f"فشل حفظ بيانات الأعضاء: {e}", type="error") # تعديل: إشعار للمستخدم
+            self._show_toast(f"فشل حفظ بيانات الأعضاء: {e}", type="error") 
 
     def closeEvent(self, event):
         logger.info("إغلاق التطبيق...")
-        self.update_status_bar_message("جاري إغلاق التطبيق...", is_general_message=True) # تعديل: رسالة شريط الحالة
+        self.update_status_bar_message("جاري إغلاق التطبيق...", is_general_message=True) 
         if self.monitoring_thread.isRunning():
             logger.info("إيقاف المراقبة قبل الإغلاق...")
-            self.monitoring_thread.stop() 
+            self.monitoring_thread.stop_monitoring() 
             if not self.monitoring_thread.wait(3000): 
                 logger.warning("خيط المراقبة لم ينتهِ في الوقت المناسب.")
         
@@ -1345,14 +1443,14 @@ class AnemApp(QMainWindow):
         logger.info("انتظار إنهاء خيوط الجلب الأولي...")
         for thread in self.initial_fetch_threads:
             if thread.isRunning():
-                thread.quit() 
-                if not thread.wait(2000): 
+                thread.quit() # Request thread to exit
+                if not thread.wait(2000): # Wait for 2 seconds
                     logger.warning(f"الخيط {thread} لم ينتهِ في الوقت المناسب عند الإغلاق.")
         
         if self.single_check_thread and self.single_check_thread.isRunning():
             logger.info("إيقاف خيط الفحص الفردي قبل الإغلاق...")
-            self.single_check_thread.quit() 
-            if not self.single_check_thread.wait(1000): 
+            self.single_check_thread.quit() # Request thread to exit
+            if not self.single_check_thread.wait(1000): # Wait for 1 second
                  logger.warning("خيط الفحص الفردي لم ينته في الوقت المناسب.")
         
         active_pdf_dl_threads_copy = list(self.active_download_all_pdfs_threads.values())
@@ -1360,8 +1458,8 @@ class AnemApp(QMainWindow):
             logger.info(f"إيقاف {len(active_pdf_dl_threads_copy)} خيوط تحميل PDF نشطة...")
             for pdf_thread in active_pdf_dl_threads_copy:
                 if pdf_thread.isRunning():
-                    pdf_thread.stop() 
-                    if not pdf_thread.wait(2000): 
+                    pdf_thread.stop() # Assuming DownloadAllPdfsThread has a stop() method
+                    if not pdf_thread.wait(2000): # Wait for 2 seconds
                         logger.warning(f"خيط تحميل جميع ملفات PDF {pdf_thread} لم ينتهِ في الوقت المناسب.")
             self.active_download_all_pdfs_threads.clear()
 
@@ -1373,7 +1471,7 @@ class AnemApp(QMainWindow):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    main_window = AnemApp()
+    # لا تستدعي load_custom_fonts() هنا مباشرة لأنها دالة عادية الآن
+    main_window = AnemApp() # __init__ سيستدعي load_custom_fonts()
     main_window.show()
     sys.exit(app.exec_())
-
